@@ -112,3 +112,19 @@ export const ChevronLeftIcon = () => (
     <path d="M15 5l-7 7 7 7" />
   </Icon>
 );
+
+export const ProfileIcon = () => (
+  <Icon>
+    <circle cx="12" cy="8" r="3.6" />
+    <path d="M4.5 20c0-3.9 3.4-6.5 7.5-6.5s7.5 2.6 7.5 6.5" />
+  </Icon>
+);
+
+export const PlannerIcon = () => (
+  <Icon>
+    <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+    <path d="M3.5 10h17" />
+    <path d="M8 3v4" />
+    <path d="M16 3v4" />
+  </Icon>
+);

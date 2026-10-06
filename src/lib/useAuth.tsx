@@ -12,6 +12,9 @@ import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   sendPasswordResetEmail,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+  updatePassword,
   User as FirebaseUser,
 } from "firebase/auth";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
@@ -27,6 +30,7 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<void>;
   signOutUser: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   hasPermission: (perm: keyof Permissions) => boolean;
   roleLabel: string; // display name of the signed-in exco's role ("" until loaded)
 }
@@ -148,6 +152,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await sendPasswordResetEmail(auth, email);
   }
 
+  // Changing a password is a sensitive action, so Firebase insists on a
+  // recent sign-in. Re-checking the current password here covers that
+  // and also stops someone on an unlocked, borrowed device from quietly
+  // changing it. Errors are rethrown as-is so the caller can map the
+  // Firebase code to a message (see lib/authErrors.ts).
+  async function changePassword(currentPassword: string, newPassword: string) {
+    if (!user || !user.email) throw new Error("not-signed-in");
+    const credential = EmailAuthProvider.credential(user.email, currentPassword);
+    await reauthenticateWithCredential(user, credential);
+    await updatePassword(user, newPassword);
+  }
+
   function hasPermission(perm: keyof Permissions) {
     if (!exco?.active) return false;
     if (exco.role === "super_admin") return true; // always full access, no exceptions
@@ -158,7 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, exco, loading, error, signIn, signOutUser, resetPassword, hasPermission, roleLabel }}
+      value={{ user, exco, loading, error, signIn, signOutUser, resetPassword, changePassword, hasPermission, roleLabel }}
     >
       {children}
     </AuthContext.Provider>

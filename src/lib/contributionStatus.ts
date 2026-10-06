@@ -55,7 +55,10 @@ export function contributionTiming(c: Dated, today: string = todayISO()): string
 
 export type PledgeStatus = "redeemed" | "partial" | "unpaid" | "unpledged" | "none";
 
-export const PLEDGE_STATUS_LABEL: Record<PledgeStatus, string> = {
+// A pledge can be money, items, or both. "Redeemed" below means everything
+// that was pledged has come in; "partial" means some has; "unpaid" means
+// none has yet.
+const MONEY_LABEL: Record<PledgeStatus, string> = {
   redeemed: "Redeemed",
   partial: "Part-paid",
   unpaid: "Not yet paid",
@@ -63,10 +66,39 @@ export const PLEDGE_STATUS_LABEL: Record<PledgeStatus, string> = {
   none: "No pledge",
 };
 
-export function getPledgeStatus(p: Pick<Pledge, "pledgedAmount" | "redeemedAmount">): PledgeStatus {
-  if (p.pledgedAmount > 0) {
-    if (p.redeemedAmount >= p.pledgedAmount) return "redeemed";
-    return p.redeemedAmount > 0 ? "partial" : "unpaid";
-  }
-  return p.redeemedAmount > 0 ? "unpledged" : "none";
+// Used instead once a pledge includes items, where "paid" no longer fits.
+const ITEMS_LABEL: Record<PledgeStatus, string> = {
+  redeemed: "Fulfilled",
+  partial: "Part-fulfilled",
+  unpaid: "Nothing given yet",
+  unpledged: "Gave without pledge",
+  none: "No pledge",
+};
+
+type PledgeLike = Pick<Pledge, "pledgedAmount" | "redeemedAmount" | "items">;
+
+/** True when this pledge includes at least one item. */
+export function pledgeHasItems(p: Pick<Pledge, "items">): boolean {
+  return (p.items?.length ?? 0) > 0;
+}
+
+export function getPledgeStatus(p: PledgeLike): PledgeStatus {
+  const items = p.items ?? [];
+  const hasMoney = p.pledgedAmount > 0;
+  const hasItems = items.length > 0;
+
+  // Nothing pledged at all: they either gave anyway, or there's nothing here.
+  if (!hasMoney && !hasItems) return p.redeemedAmount > 0 ? "unpledged" : "none";
+
+  const moneyDone = !hasMoney || p.redeemedAmount >= p.pledgedAmount;
+  const itemsDone = items.every((i) => i.received >= i.quantity);
+  if (moneyDone && itemsDone) return "redeemed";
+
+  const anyGiven = p.redeemedAmount > 0 || items.some((i) => i.received > 0);
+  return anyGiven ? "partial" : "unpaid";
+}
+
+export function pledgeStatusLabel(p: PledgeLike): string {
+  const status = getPledgeStatus(p);
+  return (pledgeHasItems(p) ? ITEMS_LABEL : MONEY_LABEL)[status];
 }

@@ -12,6 +12,11 @@ interface Props {
   youths: Youth[];
   canEdit: boolean;
   onChange: (tasks: EventTask[]) => void; // caller persists (updateEventTasks)
+  // Wording overrides so the same component serves event tasks and
+  // after-meeting actions.
+  emptyLabel?: string;
+  placeholder?: string;
+  addLabel?: string;
 }
 
 const STATUS_LABEL: Record<EventTask["status"], string> = {
@@ -30,7 +35,16 @@ function genId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-export default function TaskAssignment({ tasks, excos, youths, canEdit, onChange }: Props) {
+export default function TaskAssignment({
+  tasks,
+  excos,
+  youths,
+  canEdit,
+  onChange,
+  emptyLabel = "No tasks assigned yet.",
+  placeholder = "Task",
+  addLabel = "Add task",
+}: Props) {
   const [title, setTitle] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -69,7 +83,7 @@ export default function TaskAssignment({ tasks, excos, youths, canEdit, onChange
   return (
     <div>
       {tasks.length === 0 ? (
-        <p className="text-sm text-muted">No tasks assigned yet.</p>
+        <p className="text-sm text-muted">{emptyLabel}</p>
       ) : (
         <ul className="mb-4 divide-y divide-line text-sm">
           {tasks.map((t) => (
@@ -116,8 +130,8 @@ export default function TaskAssignment({ tasks, excos, youths, canEdit, onChange
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Task"
-            aria-label="Task"
+            placeholder={placeholder}
+            aria-label={placeholder}
             className="input min-w-[10rem] flex-1"
           />
           <select
@@ -150,7 +164,7 @@ export default function TaskAssignment({ tasks, excos, youths, canEdit, onChange
             className="input w-auto"
           />
           <button onClick={addTask} className="btn-primary">
-            Add task
+            {addLabel}
           </button>
         </div>
       )}

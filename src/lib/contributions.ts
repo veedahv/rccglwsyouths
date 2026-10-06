@@ -13,7 +13,8 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { todayISO } from "./format";
-import type { Contribution, Pledge, Payment, PaymentMethod, ExternalSupport } from "@/types";
+import { getPledgeStatus } from "./contributionStatus";
+import type { Contribution, Pledge, PledgedItem, Payment, PaymentMethod, ExternalSupport } from "@/types";
 
 export async function listContributions(): Promise<Contribution[]> {
   const q = query(collection(db, "contributions"), orderBy("createdAt", "desc"));
@@ -70,6 +71,43 @@ export async function updateContribution(id: string, data: ContributionUpdate): 
 export async function getPledges(contributionId: string): Promise<Pledge[]> {
   const snap = await getDocs(collection(db, `contributions/${contributionId}/pledges`));
   return snap.docs.map((d) => d.data() as Pledge);
+}
+
+export function newItemId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/**
+ * Creates a youth's pledge: money, items, or both. Use a pledgedAmount of
+ * 0 for an items-only pledge. Nothing has been received yet.
+ */
+export async function createPledge(
+  contributionId: string,
+  youthId: string,
+  pledgedAmount: number,
+  items: { name: string; quantity: number }[] = []
+): Promise<void> {
+  const pledge: Pledge = {
+    youthId,
+    pledgedAmount,
+    redeemedAmount: 0,
+    payments: [],
+    items: items.map((i) => ({ id: newItemId(), name: i.name.trim(), quantity: i.quantity, received: 0 })),
+  };
+  await setDoc(doc(db, `contributions/${contributionId}/pledges/${youthId}`), pledge);
+}
+
+/**
+ * Replaces the items on an existing pledge (adding, removing, changing a
+ * quantity, or recording how many have been received are all just edits to
+ * this list). Allowed at any time — including after a contribution has ended.
+ */
+export async function setPledgeItems(
+  contributionId: string,
+  youthId: string,
+  items: PledgedItem[]
+): Promise<void> {
+  await updateDoc(doc(db, `contributions/${contributionId}/pledges/${youthId}`), { items });
 }
 
 /**
@@ -146,6 +184,13 @@ export async function addExternalSupport(
   return ref.id;
 }
 
+/** One kind of item across everyone's pledges, e.g. all the chairs. */
+export interface ItemTotal {
+  name: string;
+  pledged: number;
+  received: number;
+}
+
 export interface ContributionStats {
   /** Sum of every youth's pledge. External supporters never pledge. */
   totalPledged: number;
@@ -155,8 +200,9 @@ export interface ContributionStats {
   externalReceived: number;
   /** Pledged money not yet paid in — only counts what's still owed per youth. */
   outstanding: number;
-  /** Youths with a pledge above ₦0. */
+  /** Youths who pledged something: money, items, or both. */
   pledgerCount: number;
+  /** Of those, how many have given everything they pledged. */
   fullyRedeemedCount: number;
   partlyRedeemedCount: number;
   unpaidCount: number;
@@ -164,6 +210,11 @@ export interface ContributionStats {
   unpledgedGiverCount: number;
   /** totalReceived as a share of totalPledged; null when nothing is pledged. */
   percentReceived: number | null;
+  /**
+   * Pledged items rolled up by name (case-insensitive). Quantities are only
+   * ever added within the same item, never across different items.
+   */
+  itemTotals: ItemTotal[];
 }
 
 export function computeStats(pledges: Pledge[], externalSupport: ExternalSupport[] = []): ContributionStats {
@@ -176,20 +227,42 @@ export function computeStats(pledges: Pledge[], externalSupport: ExternalSupport
   let unpaidCount = 0;
   let unpledgedGiverCount = 0;
 
+  const itemMap = new Map<string, ItemTotal>();
+
   for (const p of pledges) {
     totalPledged += p.pledgedAmount;
     youthReceived += p.redeemedAmount;
+    if (p.pledgedAmount > 0) outstanding += Math.max(0, p.pledgedAmount - p.redeemedAmount);
 
-    if (p.pledgedAmount > 0) {
-      pledgerCount += 1;
-      outstanding += Math.max(0, p.pledgedAmount - p.redeemedAmount);
-      if (p.redeemedAmount >= p.pledgedAmount) fullyRedeemedCount += 1;
-      else if (p.redeemedAmount > 0) partlyRedeemedCount += 1;
-      else unpaidCount += 1;
-    } else if (p.redeemedAmount > 0) {
-      unpledgedGiverCount += 1;
+    // Money and items are judged together, so someone who pledged only
+    // items counts as a pledger too.
+    switch (getPledgeStatus(p)) {
+      case "redeemed":
+        pledgerCount += 1;
+        fullyRedeemedCount += 1;
+        break;
+      case "partial":
+        pledgerCount += 1;
+        partlyRedeemedCount += 1;
+        break;
+      case "unpaid":
+        pledgerCount += 1;
+        unpaidCount += 1;
+        break;
+      case "unpledged":
+        unpledgedGiverCount += 1;
+        break;
+    }
+
+    for (const item of p.items ?? []) {
+      const key = item.name.trim().toLowerCase();
+      const total = itemMap.get(key) ?? { name: item.name.trim(), pledged: 0, received: 0 };
+      total.pledged += item.quantity;
+      total.received += item.received;
+      itemMap.set(key, total);
     }
   }
+  const itemTotals = [...itemMap.values()].sort((a, b) => a.name.localeCompare(b.name));
 
   const externalReceived = externalSupport.reduce((sum, s) => sum + s.amount, 0);
   const totalReceived = youthReceived + externalReceived;
@@ -206,6 +279,7 @@ export function computeStats(pledges: Pledge[], externalSupport: ExternalSupport
     unpaidCount,
     unpledgedGiverCount,
     percentReceived: totalPledged > 0 ? Math.round((totalReceived / totalPledged) * 100) : null,
+    itemTotals,
   };
 }
 

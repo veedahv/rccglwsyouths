@@ -1,13 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { setPledgeAmount, recordRedemption } from "@/lib/contributions";
-import { getPledgeStatus, PLEDGE_STATUS_LABEL, PledgeStatus } from "@/lib/contributionStatus";
+import {
+  createPledge,
+  setPledgeAmount,
+  setPledgeItems,
+  recordRedemption,
+  newItemId,
+} from "@/lib/contributions";
+import { getPledgeStatus, pledgeStatusLabel, PledgeStatus } from "@/lib/contributionStatus";
 import { useAuth } from "@/lib/useAuth";
 import { formatPersonName } from "@/lib/formatName";
 import { naira, todayISO } from "@/lib/format";
+import ItemEntry from "@/components/ItemEntry";
 import { Badge, EmptyState, Field, Notice, Tone } from "@/components/ui";
-import type { Pledge, Youth, PaymentMethod } from "@/types";
+import type { Pledge, PledgedItem, Youth, PaymentMethod } from "@/types";
 
 interface Props {
   contributionId: string;
@@ -28,6 +35,12 @@ const PLEDGE_TONE: Record<PledgeStatus, Tone> = {
 export default function PledgeTable({ contributionId, pledges, youths, canEdit, onChange }: Props) {
   const { user } = useAuth();
   const [addingYouthId, setAddingYouthId] = useState("");
+  const [addAmount, setAddAmount] = useState("");
+  // Items entered while adding a new pledge, saved together with it.
+  const [addItems, setAddItems] = useState<{ name: string; quantity: number }[]>([]);
+  // Whose items panel is open, and unsaved edits to the numbers in it.
+  const [itemsYouthId, setItemsYouthId] = useState<string | null>(null);
+  const [itemDraft, setItemDraft] = useState<Record<string, { quantity?: string; received?: string }>>({});
   const [pledgeInput, setPledgeInput] = useState<Record<string, string>>({});
   const [redeemForm, setRedeemForm] = useState<{
     youthId: string;
@@ -53,13 +66,16 @@ export default function PledgeTable({ contributionId, pledges, youths, canEdit, 
 
   async function handleAddPledge() {
     if (!addingYouthId) return;
-    const amount = Number(pledgeInput[addingYouthId] ?? 0);
+    const amount = addAmount.trim() === "" ? 0 : Number(addAmount);
     if (Number.isNaN(amount) || amount < 0) return setError("Enter a valid pledge amount.");
+    if (amount === 0 && addItems.length === 0) return setError("Enter an amount, add an item, or both.");
     setSaving(true);
     setError(null);
     try {
-      await setPledgeAmount(contributionId, addingYouthId, amount);
+      await createPledge(contributionId, addingYouthId, amount, addItems);
       setAddingYouthId("");
+      setAddAmount("");
+      setAddItems([]);
       onChange();
     } catch {
       setError("Couldn't save the pledge. Try again.");
@@ -81,6 +97,45 @@ export default function PledgeTable({ contributionId, pledges, youths, canEdit, 
     } finally {
       setSaving(false);
     }
+  }
+
+  // Every change to a pledge's items is "write the whole list back".
+  async function saveItems(youthId: string, items: PledgedItem[]) {
+    setSaving(true);
+    setError(null);
+    try {
+      await setPledgeItems(contributionId, youthId, items);
+      onChange();
+    } catch {
+      setError("Couldn't save the items. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAddItem(youthId: string, current: PledgedItem[], name: string, quantity: number) {
+    await saveItems(youthId, [...current, { id: newItemId(), name, quantity, received: 0 }]);
+  }
+
+  async function handleSaveItem(youthId: string, current: PledgedItem[], item: PledgedItem) {
+    const draft = itemDraft[item.id] ?? {};
+    const quantity = draft.quantity !== undefined ? Number(draft.quantity) : item.quantity;
+    const received = draft.received !== undefined ? Number(draft.received) : item.received;
+    if (!Number.isInteger(quantity) || quantity < 1) return setError("The pledged number must be a whole number, 1 or more.");
+    if (!Number.isInteger(received) || received < 0) return setError("The received number must be a whole number, 0 or more.");
+    setItemDraft((prev) => {
+      const { [item.id]: _removed, ...rest } = prev;
+      return rest;
+    });
+    await saveItems(youthId, current.map((i) => (i.id === item.id ? { ...i, quantity, received } : i)));
+  }
+
+  async function handleMarkAllReceived(youthId: string, current: PledgedItem[], item: PledgedItem) {
+    await saveItems(youthId, current.map((i) => (i.id === item.id ? { ...i, received: i.quantity } : i)));
+  }
+
+  async function handleRemoveItem(youthId: string, current: PledgedItem[], itemId: string) {
+    await saveItems(youthId, current.filter((i) => i.id !== itemId));
   }
 
   async function handleRecordPayment() {
@@ -115,6 +170,9 @@ export default function PledgeTable({ contributionId, pledges, youths, canEdit, 
   const totalPledged = pledges.reduce((sum, p) => sum + p.pledgedAmount, 0);
   const totalRedeemed = pledges.reduce((sum, p) => sum + p.redeemedAmount, 0);
   const totalBalance = pledges.reduce((sum, p) => sum + Math.max(0, p.pledgedAmount - p.redeemedAmount), 0);
+
+  const itemsPledge = itemsYouthId ? pledges.find((p) => p.youthId === itemsYouthId) : undefined;
+  const itemsList = itemsPledge?.items ?? [];
 
   const redeemingPledge = redeemForm ? pledges.find((p) => p.youthId === redeemForm.youthId) : undefined;
   const redeemBalance = redeemingPledge
@@ -188,10 +246,102 @@ export default function PledgeTable({ contributionId, pledges, youths, canEdit, 
         </div>
       )}
 
+      {itemsPledge && canEdit && (
+        <div className="panel mb-4 space-y-3">
+          <p className="text-sm font-semibold text-rccg-purple-800">Items for {youthName(itemsPledge.youthId)}</p>
+
+          {itemsList.length === 0 ? (
+            <p className="text-sm text-muted">No items pledged yet.</p>
+          ) : (
+            <ul className="divide-y divide-line text-sm">
+              {itemsList.map((item) => {
+                const draft = itemDraft[item.id] ?? {};
+                const dirty =
+                  (draft.quantity !== undefined && draft.quantity !== String(item.quantity)) ||
+                  (draft.received !== undefined && draft.received !== String(item.received));
+                return (
+                  <li key={item.id} className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 py-2.5 first:pt-0">
+                    <p className="min-w-[8rem] font-medium">{item.name}</p>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="text-xs text-muted">
+                        Pledged
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={draft.quantity ?? String(item.quantity)}
+                          onChange={(e) =>
+                            setItemDraft((prev) => ({ ...prev, [item.id]: { ...prev[item.id], quantity: e.target.value } }))
+                          }
+                          className="input mt-0.5 w-20 py-1"
+                        />
+                      </label>
+                      <label className="text-xs text-muted">
+                        Received
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={draft.received ?? String(item.received)}
+                          onChange={(e) =>
+                            setItemDraft((prev) => ({ ...prev, [item.id]: { ...prev[item.id], received: e.target.value } }))
+                          }
+                          className="input mt-0.5 w-20 py-1"
+                        />
+                      </label>
+                      {dirty && (
+                        <button
+                          onClick={() => handleSaveItem(itemsPledge.youthId, itemsList, item)}
+                          disabled={saving}
+                          className="btn-primary btn-sm"
+                        >
+                          Save
+                        </button>
+                      )}
+                      {!dirty && item.received < item.quantity && (
+                        <button
+                          onClick={() => handleMarkAllReceived(itemsPledge.youthId, itemsList, item)}
+                          disabled={saving}
+                          className="btn-ghost whitespace-nowrap"
+                        >
+                          All received
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleRemoveItem(itemsPledge.youthId, itemsList, item.id)}
+                        disabled={saving}
+                        className="btn-ghost-danger"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <ItemEntry
+            disabled={saving}
+            onAdd={(name, quantity) => handleAddItem(itemsPledge.youthId, itemsList, name, quantity)}
+          />
+          <button
+            onClick={() => {
+              setItemsYouthId(null);
+              setItemDraft({});
+              setError(null);
+            }}
+            className="btn-secondary btn-sm"
+          >
+            Done
+          </button>
+        </div>
+      )}
+
       {pledges.length === 0 ? (
         <EmptyState
           title="No pledges yet"
-          description={canEdit ? "Add a youth below to record what they've pledged." : undefined}
+          description={canEdit ? "Add a youth below to record what they've pledged: money, items, or both." : undefined}
         />
       ) : (
         <>
@@ -212,6 +362,7 @@ export default function PledgeTable({ contributionId, pledges, youths, canEdit, 
                   <th className="text-right">Pledged</th>
                   <th className="text-right">Redeemed</th>
                   <th className="text-right">Balance</th>
+                  <th>Items</th>
                   <th>Status</th>
                   {canEdit && <th></th>}
                 </tr>
@@ -258,11 +409,39 @@ export default function PledgeTable({ contributionId, pledges, youths, canEdit, 
                       >
                         {balance > 0 ? naira(balance) : "—"}
                       </td>
+                      <td className="text-sm">
+                        {(p.items?.length ?? 0) === 0 ? (
+                          <span className="text-muted">—</span>
+                        ) : (
+                          <ul className="space-y-0.5">
+                            {p.items!.map((item) => (
+                              <li key={item.id} className="whitespace-nowrap">
+                                <span
+                                  className={`num font-medium ${item.received >= item.quantity ? "text-rccg-green-700" : ""}`}
+                                >
+                                  {item.received}/{item.quantity}
+                                </span>{" "}
+                                <span className="text-muted">{item.name}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </td>
                       <td>
-                        <Badge tone={PLEDGE_TONE[status]}>{PLEDGE_STATUS_LABEL[status]}</Badge>
+                        <Badge tone={PLEDGE_TONE[status]}>{pledgeStatusLabel(p)}</Badge>
                       </td>
                       {canEdit && (
-                        <td className="text-right">
+                        <td className="whitespace-nowrap text-right">
+                          <button
+                            onClick={() => {
+                              setError(null);
+                              setItemsYouthId(p.youthId);
+                              setItemDraft({});
+                            }}
+                            className="btn-ghost whitespace-nowrap"
+                          >
+                            {(p.items?.length ?? 0) > 0 ? "Items" : "Add items"}
+                          </button>
                           <button
                             onClick={() => {
                               setError(null);
@@ -284,7 +463,7 @@ export default function PledgeTable({ contributionId, pledges, youths, canEdit, 
                 })}
                 {visible.length === 0 && (
                   <tr>
-                    <td colSpan={canEdit ? 6 : 5} className="py-6 text-center text-muted">
+                    <td colSpan={canEdit ? 7 : 6} className="py-6 text-center text-muted">
                       No one matches “{search}”.
                     </td>
                   </tr>
@@ -296,7 +475,7 @@ export default function PledgeTable({ contributionId, pledges, youths, canEdit, 
                   <td className="num text-right">{naira(totalPledged)}</td>
                   <td className="num text-right">{naira(totalRedeemed)}</td>
                   <td className="num text-right">{totalBalance > 0 ? naira(totalBalance) : "—"}</td>
-                  <td colSpan={canEdit ? 2 : 1}></td>
+                  <td colSpan={canEdit ? 3 : 2}></td>
                 </tr>
               </tfoot>
             </table>
@@ -305,44 +484,74 @@ export default function PledgeTable({ contributionId, pledges, youths, canEdit, 
       )}
 
       {canEdit && youthsNotYetAdded.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-end gap-2">
-          <div className="min-w-[12rem] flex-1 sm:flex-none">
-            <label className="label" htmlFor="add-pledge-youth">
-              Add a pledge
-            </label>
-            <select
-              id="add-pledge-youth"
-              value={addingYouthId}
-              onChange={(e) => setAddingYouthId(e.target.value)}
-              className="input"
-            >
-              <option value="">Choose a youth…</option>
-              {youthsNotYetAdded.map((y) => (
-                <option key={y.id} value={y.id}>
-                  {formatPersonName(y.name, y.gender)}
-                </option>
-              ))}
-            </select>
-          </div>
-          {addingYouthId && (
-            <div>
-              <label className="label" htmlFor="add-pledge-amount">
-                Pledged amount (₦)
+        <div className="mt-4 space-y-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[12rem] flex-1 sm:flex-none">
+              <label className="label" htmlFor="add-pledge-youth">
+                Add a pledge
               </label>
-              <input
-                id="add-pledge-amount"
-                type="number"
-                min={0}
-                onChange={(e) => setPledgeInput((prev) => ({ ...prev, [addingYouthId]: e.target.value }))}
-                className="input w-36"
+              <select
+                id="add-pledge-youth"
+                value={addingYouthId}
+                onChange={(e) => setAddingYouthId(e.target.value)}
+                className="input"
+              >
+                <option value="">Choose a youth…</option>
+                {youthsNotYetAdded.map((y) => (
+                  <option key={y.id} value={y.id}>
+                    {formatPersonName(y.name, y.gender)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {addingYouthId && (
+              <div>
+                <label className="label" htmlFor="add-pledge-amount">
+                  Money pledged (₦, optional)
+                </label>
+                <input
+                  id="add-pledge-amount"
+                  type="number"
+                  min={0}
+                  value={addAmount}
+                  onChange={(e) => setAddAmount(e.target.value)}
+                  className="input w-44"
+                />
+              </div>
+            )}
+          </div>
+
+          {addingYouthId && (
+            <div className="space-y-2">
+              <p className="label !mb-0">Items pledged (optional)</p>
+              {addItems.length > 0 && (
+                <ul className="flex flex-wrap gap-2">
+                  {addItems.map((item, i) => (
+                    <li
+                      key={i}
+                      className="flex items-center gap-1.5 rounded-full border border-line bg-white py-1 pl-3 pr-1.5 text-sm"
+                    >
+                      <span className="num font-medium">{item.quantity}</span> {item.name}
+                      <button
+                        onClick={() => setAddItems((prev) => prev.filter((_, j) => j !== i))}
+                        aria-label={`Remove ${item.name}`}
+                        className="rounded-full px-1.5 text-muted hover:text-rccg-red-600"
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <ItemEntry
+                buttonLabel="Add to pledge"
+                onAdd={(name, quantity) => setAddItems((prev) => [...prev, { name, quantity }])}
               />
+              <p className="hint">A pledge can be money, items, or both.</p>
             </div>
           )}
-          <button
-            onClick={handleAddPledge}
-            disabled={!addingYouthId || saving}
-            className="btn-primary"
-          >
+
+          <button onClick={handleAddPledge} disabled={!addingYouthId || saving} className="btn-primary">
             Add pledge
           </button>
         </div>

@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { listMeetings, createMeeting, audienceSummary } from "@/lib/meetings";
+import { listMeetings, createMeeting, audienceSummary, meetingAttendees, pendingActionCount } from "@/lib/meetings";
+import { getAttendanceForGathering } from "@/lib/attendance";
+import { listExcos } from "@/lib/excos";
 import { listYouths } from "@/lib/youths";
 import { useAuth } from "@/lib/useAuth";
 import { formatDate, todayISO } from "@/lib/format";
@@ -23,23 +25,42 @@ function MeetingsInner() {
   const [youths, setYouths] = useState<Youth[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // meeting id -> { present, expected } for the attendance line on each row
+  const [attendance, setAttendance] = useState<Record<string, { present: number; expected: number }>>({});
 
   const canEdit = hasPermission("canEditMinutes");
 
   async function refresh() {
     setLoading(true);
-    setMeetings(await listMeetings());
+    const [meetingList, youthList, excoList] = await Promise.all([
+      listMeetings(),
+      listYouths({ activeOnly: true }),
+      listExcos({ activeOnly: true }),
+    ]);
+    setMeetings(meetingList);
+    setYouths(youthList);
     setLoading(false);
+
+    // Attendance lives in a subcollection per meeting, so counts load after
+    // the list shows. Only people on the meeting's list are counted, the same
+    // as the checklist on the meeting page.
+    const entries = await Promise.all(
+      meetingList.map(async (m) => {
+        try {
+          const presentIds = await getAttendanceForGathering("meetings", m.id);
+          const expected = meetingAttendees(m, youthList, excoList);
+          return [m.id, { present: expected.filter((p) => presentIds.has(p.id)).length, expected: expected.length }] as const;
+        } catch {
+          return null;
+        }
+      })
+    );
+    setAttendance(Object.fromEntries(entries.filter((e): e is NonNullable<typeof e> => e !== null)));
   }
 
   useEffect(() => {
     refresh();
   }, []);
-
-  // Only people who can create meetings need the youth list (for picking a group).
-  useEffect(() => {
-    if (canEdit) listYouths({ activeOnly: true }).then(setYouths);
-  }, [canEdit]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -120,14 +141,32 @@ function MeetingsInner() {
                   <p className="text-sm text-muted">
                     {formatDate(m.date)} · {audienceSummary(m)}
                   </p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {attendance[m.id] ? (
+                      <>
+                        <span className="num font-medium text-ink">{attendance[m.id].present}</span> of{" "}
+                        {attendance[m.id].expected} present
+                      </>
+                    ) : (
+                      "Attendance…"
+                    )}
+                  </p>
                 </div>
-                {m.minutesContent?.trim() ? (
-                  <Badge tone="green" dot>
-                    Minutes written
-                  </Badge>
-                ) : (
-                  <Badge tone="gray">No minutes yet</Badge>
-                )}
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  {m.minutesContent?.trim() ? (
+                    <Badge tone="green" dot>
+                      Minutes written
+                    </Badge>
+                  ) : (
+                    <Badge tone="gray">No minutes yet</Badge>
+                  )}
+                  {(m.actionItems?.length ?? 0) > 0 &&
+                    (pendingActionCount(m) > 0 ? (
+                      <Badge tone="amber">{pendingActionCount(m)} pending</Badge>
+                    ) : (
+                      <Badge tone="green">Actions done</Badge>
+                    ))}
+                </div>
               </Link>
             </li>
           ))}

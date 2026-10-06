@@ -5,7 +5,7 @@ import { formatPersonName } from "@/lib/formatName";
 import type { MeetingAudience, Youth } from "@/types";
 
 const OPTIONS: { value: MeetingAudience; label: string; description: string }[] = [
-  { value: "excos", label: "Excos", description: "An exco meeting. Attendance is taken for the active excos." },
+  { value: "excos", label: "Excos", description: "An exco meeting. Attendance is taken for the active excos (not external admins)." },
   { value: "youths", label: "All youths", description: "A general youth meeting. Attendance is taken for every active youth." },
   { value: "selected", label: "Selected group", description: "Pick exactly which youths it's for." },
 ];

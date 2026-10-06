@@ -13,9 +13,11 @@ import {
   ExcosIcon,
   MeetingsIcon,
   EventsIcon,
+  PlannerIcon,
   ContributionsIcon,
   FinanceIcon,
   RolesIcon,
+  ProfileIcon,
   SignOutIcon,
   MenuIcon,
   CloseIcon,
@@ -28,9 +30,11 @@ const NAV_LINKS = [
   { href: "/excos", label: "Excos", Icon: ExcosIcon },
   { href: "/meetings", label: "Meetings", Icon: MeetingsIcon },
   { href: "/events", label: "Events", Icon: EventsIcon },
+  { href: "/planner", label: "Planner", Icon: PlannerIcon },
   { href: "/contributions", label: "Contributions", Icon: ContributionsIcon },
   { href: "/finance", label: "Finance", Icon: FinanceIcon },
   { href: "/roles", label: "Roles", Icon: RolesIcon },
+  { href: "/profile", label: "My profile", Icon: ProfileIcon },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -95,7 +99,15 @@ function SidebarContent({
       </nav>
 
       <div className="border-t border-white/10 p-3">
-        <div className="flex items-center gap-3 px-2 py-1.5">
+        <Link
+          href="/profile"
+          onClick={onNavigate}
+          aria-current={isActive(pathname, "/profile") ? "page" : undefined}
+          className={[
+            "flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/5",
+            isActive(pathname, "/profile") ? "bg-white/10" : "",
+          ].join(" ")}
+        >
           <span
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-rccg-green-600 text-sm font-bold text-white"
             aria-hidden="true"
@@ -106,7 +118,7 @@ function SidebarContent({
             <p className="truncate text-sm font-semibold text-white">{excoName}</p>
             <p className="truncate text-xs capitalize text-rccg-purple-300">{roleLabel}</p>
           </div>
-        </div>
+        </Link>
         <button
           onClick={onSignOut}
           className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-rccg-purple-200 transition-colors hover:bg-white/5 hover:text-white"
@@ -193,7 +205,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
 
       {/* Content — offset by the sidebar's width at md+ */}
       <main className="min-w-0 flex-1 md:pl-64">
-        <div className="mx-auto max-w-6xl">{children}</div>
+        <div className="mx-auto max-w-8xl">{children}</div>
       </main>
     </div>
   );

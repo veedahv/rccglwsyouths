@@ -157,6 +157,28 @@ service cloud.firestore {
       }
     }
 
+    // Yearly planner. Any exco can SUGGEST a programme and edit or remove
+    // their own while it's still just a suggestion; approving, declining,
+    // editing anyone's, and creating the event from it need canEditEvents.
+    // (A suggester can't approve their own: status must stay 'suggested'
+    // and the event link can't be set by them.)
+    match /programmes/{programmeId} {
+      allow read: if isExco();
+      allow create: if isExco()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.status == 'suggested'
+        && !('eventId' in request.resource.data);
+      allow update: if hasPermission('canEditEvents')
+        || (isExco()
+            && resource.data.createdBy == request.auth.uid
+            && resource.data.status == 'suggested'
+            && request.resource.data.status == 'suggested'
+            && request.resource.data.createdBy == resource.data.createdBy
+            && !('eventId' in request.resource.data));
+      allow delete: if hasPermission('canEditEvents')
+        || (isExco() && resource.data.createdBy == request.auth.uid && resource.data.status == 'suggested');
+    }
+
     match /activities/{activityId} {
       allow read: if isExco();
       allow write: if isExco(); // any exco can log an activity

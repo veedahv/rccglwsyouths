@@ -7,16 +7,17 @@ import { ChevronLeftIcon } from "./icons";
  * what keeps every page looking like part of the same app.
  * ---------------------------------------------------------------------- */
 
-type PageSize = "sm" | "md" | "lg";
+type PageSize = "sm" | "md" | "lg" | "xl";
 
 const PAGE_MAX: Record<PageSize, string> = {
   sm: "max-w-2xl",
   md: "max-w-4xl",
   lg: "max-w-6xl",
+  xl: "max-w-8xl",
 };
 
 /** Page wrapper: consistent padding, and a readable max width per page. */
-export function Page({ size = "lg", children }: { size?: PageSize; children: ReactNode }) {
+export function Page({ size = "xl", children }: { size?: PageSize; children: ReactNode }) {
   return (
     <div className={`w-full ${PAGE_MAX[size]} px-4 py-6 sm:px-6 lg:px-8 lg:py-8`}>{children}</div>
   );

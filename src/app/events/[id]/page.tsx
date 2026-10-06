@@ -7,6 +7,8 @@ import {
   updateEventDetails,
   updateEventAgenda,
   updateEventTasks,
+  updateEventBudget,
+  budgetTotal,
   updateEventPlanningNotes,
   updateEventAfterEventReport,
 } from "@/lib/events";
@@ -21,10 +23,11 @@ import AttendanceChecklist from "@/components/AttendanceChecklist";
 import AgendaEditor from "@/components/AgendaEditor";
 import TaskAssignment from "@/components/TaskAssignment";
 import EditableSection from "@/components/EditableSection";
+import BudgetEditor from "@/components/BudgetEditor";
 import StartEventContribution from "@/components/StartEventContribution";
 import { Page, PageHeader, Card, Badge, Field, Loading, Notice } from "@/components/ui";
 import { ContributionBar, ContributionStatusBadge } from "@/components/ContributionProgress";
-import type { ChurchEvent, ExcoMember, Youth, AgendaItem, EventTask, Contribution } from "@/types";
+import type { ChurchEvent, ExcoMember, Youth, AgendaItem, EventTask, BudgetItem, Contribution } from "@/types";
 
 function EventDetailInner({ id }: { id: string }) {
   const { user, hasPermission } = useAuth();
@@ -38,6 +41,7 @@ function EventDetailInner({ id }: { id: string }) {
   const [editingDetails, setEditingDetails] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [dateDraft, setDateDraft] = useState("");
+  const [themeDraft, setThemeDraft] = useState("");
   const [savingDetails, setSavingDetails] = useState(false);
 
   const [contribution, setContribution] = useState<Contribution | null>(null);
@@ -88,18 +92,25 @@ function EventDetailInner({ id }: { id: string }) {
     await updateEventTasks(id, tasks);
   }
 
+  async function handleBudgetChange(budget: BudgetItem[]) {
+    if (!event) return;
+    setEvent({ ...event, budget }); // optimistic
+    await updateEventBudget(id, budget);
+  }
+
   function startEditingDetails() {
     if (!event) return;
     setTitleDraft(event.title);
     setDateDraft(event.date);
+    setThemeDraft(event.theme ?? "");
     setEditingDetails(true);
   }
 
   async function saveDetails() {
     if (!titleDraft.trim() || !event) return;
     setSavingDetails(true);
-    await updateEventDetails(id, { title: titleDraft, date: dateDraft });
-    setEvent({ ...event, title: titleDraft, date: dateDraft });
+    await updateEventDetails(id, { title: titleDraft, date: dateDraft, theme: themeDraft });
+    setEvent({ ...event, title: titleDraft, date: dateDraft, theme: themeDraft.trim() });
     setSavingDetails(false);
     setEditingDetails(false);
   }
@@ -135,6 +146,9 @@ function EventDetailInner({ id }: { id: string }) {
                 className="input sm:w-auto"
               />
             </Field>
+            <Field label="Theme (optional)" hint="Leave blank if it hasn't been decided yet.">
+              <input value={themeDraft} onChange={(e) => setThemeDraft(e.target.value)} className="input" />
+            </Field>
             <div className="flex gap-2">
               <button onClick={saveDetails} disabled={savingDetails} className="btn-primary btn-sm">
                 {savingDetails ? "Saving…" : "Save"}
@@ -150,9 +164,20 @@ function EventDetailInner({ id }: { id: string }) {
           title={event.title}
           backHref="/events"
           backLabel="Events"
-          description={formatDate(event.date)}
+          description={
+            event.theme
+              ? `${formatDate(event.date)} · Theme: ${event.theme}`
+              : canEditEvent
+              ? `${formatDate(event.date)} · No theme yet`
+              : formatDate(event.date)
+          }
           actions={
             <>
+              {event.programmeId && (
+                <Link href="/planner" className="btn-ghost">
+                  From yearly planner
+                </Link>
+              )}
               <Badge tone={hasHappened ? "gray" : "green"} dot>
                 {hasHappened ? "Concluded" : "Upcoming"}
               </Badge>
@@ -179,6 +204,19 @@ function EventDetailInner({ id }: { id: string }) {
             canEdit={canEditEvent}
             onChange={handleTasksChange}
           />
+        </Card>
+
+        <Card
+          title="Budget"
+          action={
+            (event.budget?.length ?? 0) > 0 ? (
+              <span className="num font-display text-lg font-bold text-rccg-purple-800">
+                {naira(budgetTotal(event.budget))}
+              </span>
+            ) : undefined
+          }
+        >
+          <BudgetEditor items={event.budget ?? []} canEdit={canEditEvent} onChange={handleBudgetChange} />
         </Card>
 
         <Card
@@ -219,6 +257,16 @@ function EventDetailInner({ id }: { id: string }) {
                       received of {naira(contributionStats.totalPledged)} pledged
                     </span>
                   </p>
+                  {contributionStats.itemTotals.length > 0 && (
+                    <p className="mt-1 text-sm text-muted">
+                      Items:{" "}
+                      <span className="num font-semibold text-ink">
+                        {contributionStats.itemTotals.filter((t) => t.received >= t.pledged).length}
+                      </span>{" "}
+                      of {contributionStats.itemTotals.length} pledged{" "}
+                      {contributionStats.itemTotals.length === 1 ? "item" : "items"} fully received
+                    </p>
+                  )}
                 </div>
               )}
             </div>

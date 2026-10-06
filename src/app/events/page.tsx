@@ -16,6 +16,7 @@ function EventsInner() {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(() => todayISO());
+  const [theme, setTheme] = useState("");
   const [saving, setSaving] = useState(false);
 
   const canEdit = hasPermission("canEditEvents");
@@ -34,8 +35,9 @@ function EventsInner() {
     e.preventDefault();
     if (!title.trim() || !user) return;
     setSaving(true);
-    await createEvent({ title, date, createdBy: user.uid });
+    await createEvent({ title, date, theme, createdBy: user.uid });
     setTitle("");
+    setTheme("");
     setShowForm(false);
     setSaving(false);
     refresh();
@@ -59,12 +61,17 @@ function EventsInner() {
 
       {showForm && (
         <Card title="New event" className="mb-6">
-          <form onSubmit={handleCreate} className="grid gap-4 sm:grid-cols-[1fr_auto_auto] sm:items-end">
-            <Field label="Event title">
-              <input value={title} onChange={(e) => setTitle(e.target.value)} className="input" required />
-            </Field>
-            <Field label="Date">
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input" />
+          <form onSubmit={handleCreate} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
+              <Field label="Event title">
+                <input value={title} onChange={(e) => setTitle(e.target.value)} className="input" required />
+              </Field>
+              <Field label="Date">
+                <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input" />
+              </Field>
+            </div>
+            <Field label="Theme (optional)" hint="Fine to leave blank for now. You can add it once it's decided.">
+              <input value={theme} onChange={(e) => setTheme(e.target.value)} className="input" />
             </Field>
             <button disabled={saving} className="btn-primary">
               {saving ? "Creating…" : "Create event"}
@@ -90,6 +97,7 @@ function EventsInner() {
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-rccg-purple-800">{e.title}</p>
                     <p className="text-sm text-muted">{formatDate(e.date)}</p>
+                    {e.theme && <p className="truncate text-sm italic text-muted">Theme: {e.theme}</p>}
                   </div>
                   <Badge tone={hasHappened ? "gray" : "green"} dot>
                     {hasHappened ? "Concluded" : "Upcoming"}

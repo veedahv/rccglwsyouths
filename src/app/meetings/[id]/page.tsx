@@ -4,20 +4,23 @@ import { useEffect, useState } from "react";
 import {
   getMeeting,
   updateMeetingMinutes,
+  updateMeetingActions,
   updateMeetingAudience,
+  meetingAttendees,
+  pendingActionCount,
   audienceOf,
   audienceSummary,
-  excoAttendees,
 } from "@/lib/meetings";
 import { listExcos } from "@/lib/excos";
 import { listYouths } from "@/lib/youths";
 import { useAuth } from "@/lib/useAuth";
 import { formatDate } from "@/lib/format";
 import RequireAuth from "@/components/RequireAuth";
+import TaskAssignment from "@/components/TaskAssignment";
 import AttendanceChecklist from "@/components/AttendanceChecklist";
 import MeetingAudienceFields from "@/components/MeetingAudienceFields";
 import { Page, PageHeader, Card, Loading, Notice } from "@/components/ui";
-import type { Attendee, ExcoMember, Meeting, MeetingAudience, Youth } from "@/types";
+import type { Attendee, ExcoMember, Meeting, MeetingActionItem, MeetingAudience, Youth } from "@/types";
 
 function MeetingDetailInner({ id }: { id: string }) {
   const { hasPermission } = useAuth();
@@ -31,6 +34,7 @@ function MeetingDetailInner({ id }: { id: string }) {
   const [savingAudience, setSavingAudience] = useState(false);
   const [minutes, setMinutes] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showEdit, setShowEdit] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const canEdit = hasPermission("canEditMinutes");
@@ -56,6 +60,20 @@ function MeetingDetailInner({ id }: { id: string }) {
     setSaving(true);
     await updateMeetingMinutes(id, minutes);
     setSaving(false);
+    setShowEdit(false);
+  }
+
+  // Saves straight away, like event tasks. Optimistic so the status
+  // dropdown doesn't feel laggy; rolls back if the write fails.
+  async function handleActionsChange(actionItems: MeetingActionItem[]) {
+    if (!meeting) return;
+    const previous = meeting.actionItems ?? [];
+    setMeeting({ ...meeting, actionItems });
+    try {
+      await updateMeetingActions(id, actionItems);
+    } catch {
+      setMeeting((m) => (m ? { ...m, actionItems: previous } : m));
+    }
   }
 
   function startEditingAudience() {
@@ -93,7 +111,7 @@ function MeetingDetailInner({ id }: { id: string }) {
     if (meeting && audienceOf(meeting) === "selected") {
       const ids = [...(meeting.attendeeIds ?? []), youth.id];
       setMeeting({ ...meeting, attendeeIds: ids });
-      await updateMeetingAudience(id, "selected", ids).catch(() => {});
+      await updateMeetingAudience(id, "selected", ids).catch(() => { });
     }
   }
 
@@ -111,12 +129,9 @@ function MeetingDetailInner({ id }: { id: string }) {
     );
 
   const audience = audienceOf(meeting);
-  const attendees: Attendee[] =
-    audience === "excos"
-      ? excoAttendees(excos)
-      : audience === "selected"
-      ? youths.filter((y) => meeting.attendeeIds?.includes(y.id))
-      : youths;
+  const attendees: Attendee[] = meetingAttendees(meeting, youths, excos);
+  const actions = meeting.actionItems ?? [];
+  const pendingActions = pendingActionCount(meeting);
 
   return (
     <Page size="md">
@@ -128,8 +143,14 @@ function MeetingDetailInner({ id }: { id: string }) {
       />
 
       <div className="space-y-6">
-        <Card title="Minutes">
-          {canEdit ? (
+        <Card title="Minutes" action={
+          canEdit && !showEdit ? (
+            <button onClick={() => setShowEdit(true)} className="btn-secondary btn-sm">
+              Edit minutes
+            </button>
+          ) : undefined
+        }>
+          {showEdit ? (
             <div>
               <textarea
                 value={minutes}
@@ -138,15 +159,40 @@ function MeetingDetailInner({ id }: { id: string }) {
                 className="input leading-relaxed"
                 placeholder="Write the minutes for this meeting…"
               />
-              <button onClick={saveMinutes} disabled={saving} className="btn-primary mt-3">
-                {saving ? "Saving…" : "Save minutes"}
-              </button>
+              <div className="flex gap-3">
+                <button onClick={saveMinutes} disabled={saving} className="btn-primary mt-3">
+                  {saving ? "Saving…" : "Save minutes"}
+                </button>
+                <button onClick={() => setShowEdit(false)} className="btn-secondary mt-3">
+                  Cancel
+                </button>
+              </div>
             </div>
           ) : minutes ? (
             <p className="whitespace-pre-wrap text-sm leading-relaxed">{minutes}</p>
           ) : (
             <p className="text-sm text-muted">No minutes recorded yet.</p>
           )}
+        </Card>
+
+        <Card
+          title="After-meeting actions"
+          description={
+            actions.length === 0
+              ? "Who needs to do what following this meeting."
+              : `${pendingActions} pending of ${actions.length}`
+          }
+        >
+          <TaskAssignment
+            tasks={actions}
+            excos={excos}
+            youths={youths}
+            canEdit={canEdit}
+            onChange={handleActionsChange}
+            emptyLabel="No actions from this meeting yet."
+            placeholder="Action (e.g. Design the sports flyer)"
+            addLabel="Add action"
+          />
         </Card>
 
         <Card

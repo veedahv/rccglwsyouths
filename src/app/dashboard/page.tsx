@@ -146,7 +146,7 @@ function DashboardInner() {
                   tone={featured.stats.outstanding > 0 ? "red" : "default"}
                   hint={
                     featured.stats.pledgerCount > 0
-                      ? `${featured.stats.fullyRedeemedCount} of ${pluralize(featured.stats.pledgerCount, "pledge")} fully paid`
+                      ? `${featured.stats.fullyRedeemedCount} of ${pluralize(featured.stats.pledgerCount, "pledge")} fulfilled`
                       : undefined
                   }
                 />

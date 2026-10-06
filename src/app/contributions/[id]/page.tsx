@@ -50,8 +50,10 @@ function ContributionDetailInner({ id }: { id: string }) {
 
   const canEdit = hasPermission("canEditFinance");
 
-  async function refresh() {
-    setLoading(true);
+  // `silent` skips the full-page loading state, so editing a pledge (or its
+  // items) doesn't blank the page and close whatever panel is open.
+  async function refresh(silent = false) {
+    if (!silent) setLoading(true);
     const [contributionData, pledgeData, externalSupportData, excoData, youthData] = await Promise.all([
       getContribution(id),
       getPledges(id),
@@ -166,14 +168,14 @@ function ContributionDetailInner({ id }: { id: string }) {
               tone={stats.outstanding > 0 ? "red" : "default"}
               hint={
                 owing > 0
-                  ? `${pluralize(owing, "youth")} still to pay`
+                  ? `${pluralize(owing, "youth")} still to give`
                   : stats.pledgerCount > 0
                   ? "All pledges paid"
                   : undefined
               }
             />
             <Stat
-              label="Pledges fully paid"
+              label="Pledges fulfilled"
               value={`${stats.fullyRedeemedCount} of ${stats.pledgerCount}`}
               hint={
                 stats.unpledgedGiverCount > 0
@@ -195,6 +197,40 @@ function ContributionDetailInner({ id }: { id: string }) {
             still be recorded.
             {stats.outstanding > 0 && ` ${naira(stats.outstanding)} in pledges hasn't been paid yet.`}
           </Notice>
+        )}
+
+        {stats.itemTotals.length > 0 && (
+          <Card title="Items pledged" description="Everything pledged as items, added up per item.">
+            <div className="overflow-x-auto rounded-lg border border-line">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th className="text-right">Pledged</th>
+                    <th className="text-right">Received</th>
+                    <th className="text-right">Still to come</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.itemTotals.map((t) => {
+                    const remaining = Math.max(0, t.pledged - t.received);
+                    return (
+                      <tr key={t.name.toLowerCase()}>
+                        <td className="font-medium">{t.name}</td>
+                        <td className="num text-right">{t.pledged}</td>
+                        <td className="num text-right">{t.received}</td>
+                        <td
+                          className={`num text-right ${remaining > 0 ? "font-medium text-rccg-red-600" : "text-muted"}`}
+                        >
+                          {remaining > 0 ? remaining : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         )}
 
         <Card
@@ -296,7 +332,9 @@ function ContributionDetailInner({ id }: { id: string }) {
         <Card
           title="Pledges and payments"
           description={
-            canEdit ? "Add a pledge, edit it, or record a payment against it. Payments can be topped up any time." : undefined
+            canEdit
+              ? "Pledges can be money, items, or both. Edit a pledge, record payments against it, or track the items as they're brought in. Payments can be topped up any time."
+              : undefined
           }
         >
           <PledgeTable
@@ -304,7 +342,7 @@ function ContributionDetailInner({ id }: { id: string }) {
             pledges={pledges}
             youths={youths}
             canEdit={canEdit}
-            onChange={refresh}
+            onChange={() => refresh(true)}
           />
         </Card>
 
@@ -313,7 +351,7 @@ function ContributionDetailInner({ id }: { id: string }) {
             contributionId={id}
             externalSupport={externalSupport}
             canEdit={canEdit}
-            onChange={refresh}
+            onChange={() => refresh(true)}
           />
         </Card>
 

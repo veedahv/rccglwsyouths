@@ -138,12 +138,25 @@ export interface Contribution {
   createdAt: string;
 }
 
+// Something a youth has pledged to bring instead of (or as well as) money —
+// e.g. 10 chairs, 2 crates of drinks. `received` is how many have actually
+// been brought so far.
+export interface PledgedItem {
+  id: string;
+  name: string;
+  quantity: number; // how many were pledged
+  received: number; // how many have been brought so far
+}
+
 // /contributions/{contributionId}/pledges/{youthId}
+// A pledge can be money, items, or both: pledgedAmount is 0 for an
+// items-only pledge, and `items` is empty/absent for a money-only one.
 export interface Pledge {
   youthId: string;
   pledgedAmount: number;
   redeemedAmount: number; // sum of `payments` below, denormalized
   payments: Payment[];
+  items?: PledgedItem[]; // pledges made before items existed have none
 }
 
 // /contributions/{contributionId}/externalSupport/{supportId} — money
@@ -179,7 +192,7 @@ export interface Transaction {
 }
 
 // Who a meeting is for, which decides who shows up on its attendance list:
-//   excos    — the active excos (including external admins)
+//   excos    — the active excos (external admins aren't included)
 //   youths   — every active youth
 //   selected — a hand-picked group of youths (see attendeeIds)
 // Meetings created before this existed have no audience and are treated
@@ -193,6 +206,10 @@ export interface Meeting {
   audience?: MeetingAudience;
   attendeeIds?: string[]; // youth IDs; only meaningful when audience is "selected"
   minutesContent: string;
+  // Follow-ups agreed in the meeting (e.g. "design the sports flyer").
+  // Same shape as an event task: who, what, optional due date, status.
+  // Older meetings have none.
+  actionItems?: MeetingActionItem[];
   createdBy: string;
   createdAt: string;
 }
@@ -211,23 +228,63 @@ export interface EventTask {
   dueDate?: string;
 }
 
+// An after-meeting action: same fields as an event task, so the same
+// assignment UI is reused. "Pending" for counting means anything not done.
+export type MeetingActionItem = EventTask;
+
+// One line of an event's budget — what it is and what it's expected to cost.
+export interface BudgetItem {
+  id: string;
+  item: string;
+  price: number; // ₦
+}
+
 export interface ChurchEvent {
   id: string;
   title: string;
   date: string;
+  // Optional, and often decided late in the planning, so it can be left
+  // blank at first and added or changed at any time. Empty means "none yet".
+  theme?: string;
+  budget?: BudgetItem[]; // the total is always derived (see lib/events.ts budgetTotal)
   agenda: AgendaItem[];
   tasks: EventTask[];
   planningNotes?: string; // freeform thoughts/suggestions while planning, before the event happens
   afterEventReport?: string; // what used to be called "minutes" for an event — written once it's concluded
   contributionId?: string; // set once a contribution drive has been started for this event
+  programmeId?: string; // set when the event was created from a programme on the yearly planner
   createdBy: string;
   createdAt: string;
+}
+
+// A programme on the yearly planner (/programmes/{id}) — an idea for
+// something to do in a given year, before it's an actual event. It moves
+// suggested → approved (or declined); once an event has been created from
+// it, `eventId` points at that event.
+export type ProgrammeStatus = "suggested" | "approved" | "declined";
+
+export interface Programme {
+  id: string;
+  title: string;
+  idea?: string; // what it is and why
+  year: number; // the year it's planned for
+  month?: number | null; // 1–12 suggested month; null/absent = not decided yet
+  timeNote?: string; // free-text timeline, e.g. "Two-day retreat, late March"
+  estimatedBudget?: number | null; // ₦, rough figure while still an idea
+  status: ProgrammeStatus;
+  eventId?: string; // set once an event has been created from this programme
+  createdBy: string; // uid of whoever suggested it
+  createdByName: string; // their display name at the time (denormalised for the list)
+  createdAt: string;
+  decidedByName?: string | null; // who approved/declined it
+  decidedAt?: string | null;
 }
 
 // /meetings/{id}/attendance/{youthId} and /events/{id}/attendance/{youthId}
 // For an exco meeting, an exco who is also a youth is marked under their
 // youthId (so it shows on their youth profile); an exco with no youth
-// record (an external admin) is marked under their exco ID instead.
+// record (e.g. the manually created first super admin) is marked under
+// their exco ID instead.
 // youthId is duplicated into the doc (even though it's also the doc ID)
 // so a collectionGroup("attendance") query can filter by it directly —
 // needed to pull one youth's attendance across both meetings and events.

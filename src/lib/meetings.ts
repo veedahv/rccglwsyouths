@@ -9,7 +9,7 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { Attendee, ExcoMember, Meeting, MeetingAudience } from "@/types";
+import type { Attendee, ExcoMember, Meeting, MeetingActionItem, MeetingAudience, Youth } from "@/types";
 
 export async function listMeetings(): Promise<Meeting[]> {
   const q = query(collection(db, "meetings"), orderBy("date", "desc"));
@@ -42,12 +42,33 @@ export function audienceSummary(meeting: Meeting): string {
 }
 
 /**
- * The attendance list for an exco meeting. An exco who is also a youth is
- * keyed by their youth ID, so the attendance shows up on their youth
- * profile too; an external admin (no youth record) is keyed by exco ID.
+ * The attendance list for an exco meeting. External admins (the pastors
+ * and other non-youths) don't normally sit in exco meetings, so they're
+ * left off. An exco who is also a youth is keyed by their youth ID, so
+ * the attendance shows up on their youth profile too; one with no youth
+ * record (e.g. the manually created first super admin) is keyed by exco ID.
  */
 export function excoAttendees(excos: ExcoMember[]): Attendee[] {
-  return excos.map((e) => ({ id: e.youthId ?? e.id, name: e.name, gender: e.gender }));
+  return excos
+    .filter((e) => !e.external)
+    .map((e) => ({ id: e.youthId ?? e.id, name: e.name, gender: e.gender }));
+}
+
+/** Who is expected at a meeting, based on its audience. */
+export function meetingAttendees(meeting: Meeting, youths: Youth[], excos: ExcoMember[]): Attendee[] {
+  const audience = audienceOf(meeting);
+  if (audience === "excos") return excoAttendees(excos);
+  if (audience === "selected") return youths.filter((y) => meeting.attendeeIds?.includes(y.id));
+  return youths;
+}
+
+/** Actions from the meeting that aren't finished yet. */
+export function pendingActionCount(meeting: Pick<Meeting, "actionItems">): number {
+  return (meeting.actionItems ?? []).filter((a) => a.status !== "done").length;
+}
+
+export async function updateMeetingActions(id: string, actionItems: MeetingActionItem[]): Promise<void> {
+  await updateDoc(doc(db, "meetings", id), { actionItems });
 }
 
 export async function createMeeting(data: {
@@ -62,6 +83,7 @@ export async function createMeeting(data: {
     ...rest,
     attendeeIds: data.audience === "selected" ? attendeeIds ?? [] : [],
     minutesContent: "",
+    actionItems: [],
     createdAt: new Date().toISOString(),
   });
   return ref.id;
