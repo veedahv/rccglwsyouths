@@ -12,11 +12,12 @@ import {
 } from "@/lib/reports";
 import { downloadMonthlyReportPdf, downloadQuarterlyReportPdf } from "@/lib/reportPdf";
 import { createTransaction } from "@/lib/transactions";
+import { saveOpeningBalance, openingTotal } from "@/lib/openingBalances";
 import { useAuth } from "@/lib/useAuth";
 import { formatDate, naira, todayISO } from "@/lib/format";
 import RequireAuth from "@/components/RequireAuth";
 import { Page, PageHeader, Card, Stat, Field, Loading, Notice } from "@/components/ui";
-import type { Transaction } from "@/types";
+import type { OpeningBalance, Transaction } from "@/types";
 
 function currentYearMonth() {
   const now = new Date();
@@ -71,7 +72,8 @@ function LineItemTable({ items }: { items: ReportLineItem[] }) {
 function YearlySummaryCard({ report }: { report: YearlyReport }) {
   return (
     <Card title={`${report.year} summary`}>
-      <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-5">
+        <Stat label="Opening balance" value={naira(report.openingBalance)} />
         <Stat label="Total dues" value={naira(report.totalDues)} />
         <Stat label="Total incoming" value={naira(report.totalIncoming)} tone="green" />
         <Stat label="Total outgoing" value={naira(report.totalOutgoing)} tone="red" />
@@ -84,6 +86,128 @@ function YearlySummaryCard({ report }: { report: YearlyReport }) {
         </Link>{" "}
         pages.
       </p>
+    </Card>
+  );
+}
+
+function OpeningBalanceCard({
+  year,
+  entry,
+  canEdit,
+  onSaved,
+}: {
+  year: number;
+  entry: OpeningBalance | null;
+  canEdit: boolean;
+  onSaved: () => void;
+}) {
+  const { user } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [cash, setCash] = useState("");
+  const [transfer, setTransfer] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function startEditing() {
+    setCash(entry ? String(entry.cash) : "");
+    setTransfer(entry ? String(entry.transfer) : "");
+    setNote(entry?.note ?? "");
+    setError(null);
+    setEditing(true);
+  }
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!user) return;
+    const cashAmount = Number(cash || 0);
+    const transferAmount = Number(transfer || 0);
+    if (cashAmount < 0 || transferAmount < 0 || Number.isNaN(cashAmount + transferAmount)) {
+      return setError("Amounts can't be negative.");
+    }
+    if (cashAmount + transferAmount === 0) {
+      return setError("Enter the cash amount, the transfer amount, or both.");
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await saveOpeningBalance({ year, cash: cashAmount, transfer: transferAmount, note, updatedBy: user.uid });
+      setEditing(false);
+      onSaved();
+    } catch {
+      setError("Couldn't save the opening balance. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card
+      title={`Opening balance ${year}`}
+      description="Money carried over from the year before, as at 1 January. It's where this year's reports start from."
+      action={
+        canEdit && !editing ? (
+          <button onClick={startEditing} className="btn-secondary btn-sm">
+            {entry ? "Edit" : "Set opening balance"}
+          </button>
+        ) : undefined
+      }
+    >
+      {editing ? (
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="In cash (₦)">
+              <input
+                type="number"
+                min={0}
+                value={cash}
+                onChange={(e) => setCash(e.target.value)}
+                placeholder="0"
+                className="input"
+              />
+            </Field>
+            <Field label="In the account, by transfer (₦)">
+              <input
+                type="number"
+                min={0}
+                value={transfer}
+                onChange={(e) => setTransfer(e.target.value)}
+                placeholder="0"
+                className="input"
+              />
+            </Field>
+          </div>
+          <p className="num text-sm text-muted">
+            Total: <span className="font-semibold text-ink">{naira(Number(cash || 0) + Number(transfer || 0))}</span>
+          </p>
+          <Field label="Note (optional)" hint="e.g. who handed it over.">
+            <input value={note} onChange={(e) => setNote(e.target.value)} className="input" />
+          </Field>
+          {error && <Notice tone="error">{error}</Notice>}
+          <div className="flex gap-2">
+            <button disabled={saving} className="btn-primary">
+              {saving ? "Saving…" : "Save opening balance"}
+            </button>
+            <button type="button" onClick={() => setEditing(false)} className="btn-secondary">
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : entry ? (
+        <div>
+          <div className="grid grid-cols-3 gap-x-6">
+            <Stat label="Cash" value={naira(entry.cash)} />
+            <Stat label="Transfer" value={naira(entry.transfer)} />
+            <Stat label="Total" value={naira(openingTotal(entry))} tone="purple" />
+          </div>
+          {entry.note && <p className="mt-3 text-sm text-muted">{entry.note}</p>}
+        </div>
+      ) : (
+        <p className="text-sm text-muted">
+          No opening balance recorded for {year}.
+          {canEdit && " Set it if money was carried over from last year."}
+        </p>
+      )}
     </Card>
   );
 }
@@ -304,6 +428,18 @@ function FinanceInner() {
         </div>
 
         {yearlyReport && <YearlySummaryCard report={yearlyReport} />}
+
+        {yearlyReport && (
+          <OpeningBalanceCard
+            year={year}
+            entry={yearlyReport.openingEntry}
+            canEdit={canEdit}
+            onSaved={() => {
+              refreshYearly();
+              refreshMonthly();
+            }}
+          />
+        )}
 
         <Card
           title={report ? formatMonth(report.yearMonth) : "Monthly report"}

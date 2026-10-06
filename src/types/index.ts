@@ -191,6 +191,21 @@ export interface Transaction {
   createdAt: string;
 }
 
+// /openingBalances/{year} — money carried over into the start of a year,
+// for when the records only begin part-way through the money's life (e.g.
+// the system started this year but last year's balance was moved across).
+// It's the starting point for that year's reports: the balance on 1 Jan,
+// split by how it's held. Anything recorded before that year is not added
+// on top of it.
+export interface OpeningBalance {
+  year: number;
+  cash: number; // ₦ held as cash
+  transfer: number; // ₦ held in the account (transfers)
+  note?: string; // e.g. "Handed over by the outgoing financial secretary"
+  updatedBy: string; // uid
+  updatedAt: string;
+}
+
 // Who a meeting is for, which decides who shows up on its attendance list:
 //   excos    — the active excos (external admins aren't included)
 //   youths   — every active youth

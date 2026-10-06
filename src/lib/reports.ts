@@ -2,9 +2,10 @@ import { collectionGroup, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { listTransactions } from "./transactions";
 import { listYouths } from "./youths";
+import { listOpeningBalances, openingTotal } from "./openingBalances";
 import { formatMonthList } from "./dues";
 import { formatPersonName } from "./formatName";
-import type { DuesRecord, Payment, PaymentMethod } from "@/types";
+import type { DuesRecord, OpeningBalance, Payment, PaymentMethod } from "@/types";
 
 export interface ReportLineItem {
   date: string; // the actual date money moved — not which period it covers
@@ -35,6 +36,10 @@ export interface YearlyReport {
   totalIncoming: number;
   totalOutgoing: number;
   closingBalance: number;
+  // The opening balance entered for this year (cash/transfer split), if any.
+  // When there isn't one the opening balance is just carried forward from
+  // earlier recorded activity (or zero).
+  openingEntry: OpeningBalance | null;
 }
 
 function sumItems(items: ReportLineItem[] | undefined): number {
@@ -46,6 +51,7 @@ interface FlowMaps {
   otherIncomeLineItemsByMonth: Record<string, ReportLineItem[]>;
   expenseLineItemsByMonth: Record<string, ReportLineItem[]>;
   allMonths: string[]; // sorted ascending, union of every month with any activity
+  openingBalances: OpeningBalance[]; // sorted by year ascending
 }
 
 interface FlatDuesPayment {
@@ -118,9 +124,10 @@ async function buildDuesLineItemsByMonth(): Promise<Record<string, ReportLineIte
 }
 
 async function collectFlows(): Promise<FlowMaps> {
-  const [duesLineItemsByMonth, transactions] = await Promise.all([
+  const [duesLineItemsByMonth, transactions, openingBalances] = await Promise.all([
     buildDuesLineItemsByMonth(),
     listTransactions(),
+    listOpeningBalances(),
   ]);
 
   const otherIncomeLineItemsByMonth: Record<string, ReportLineItem[]> = {};
@@ -150,13 +157,14 @@ async function collectFlows(): Promise<FlowMaps> {
     ])
   ).sort();
 
-  return { duesLineItemsByMonth, otherIncomeLineItemsByMonth, expenseLineItemsByMonth, allMonths };
+  return { duesLineItemsByMonth, otherIncomeLineItemsByMonth, expenseLineItemsByMonth, allMonths, openingBalances };
 }
 
-/** Net (in - out) of every month strictly before `beforeMonth` — the running balance carried forward. */
-function cumulativeNetBefore(flows: FlowMaps, beforeMonth: string): number {
+/** Net (in - out) of every month from `fromMonth` up to, but not including, `beforeMonth`. */
+function netBetween(flows: FlowMaps, fromMonth: string, beforeMonth: string): number {
   let net = 0;
   for (const month of flows.allMonths) {
+    if (month < fromMonth) continue;
     if (month >= beforeMonth) break;
     net += sumItems(flows.duesLineItemsByMonth[month]) + sumItems(flows.otherIncomeLineItemsByMonth[month]);
     net -= sumItems(flows.expenseLineItemsByMonth[month]);
@@ -164,8 +172,24 @@ function cumulativeNetBefore(flows: FlowMaps, beforeMonth: string): number {
   return net;
 }
 
+/**
+ * The balance at the start of `beforeMonth` — the running balance carried
+ * forward. If an opening balance has been entered for that year or an
+ * earlier one, the latest such entry is the starting point (its year's
+ * 1 January balance) and only activity from then on is added; anything
+ * recorded before it is ignored, since the opening balance already
+ * accounts for it. With no opening balance, it's the net of all recorded
+ * activity before the month.
+ */
+function balanceBefore(flows: FlowMaps, beforeMonth: string): number {
+  const year = Number(beforeMonth.slice(0, 4));
+  const base = flows.openingBalances.filter((o) => o.year <= year).pop();
+  if (!base) return netBetween(flows, "", beforeMonth);
+  return openingTotal(base) + netBetween(flows, `${base.year}-01`, beforeMonth);
+}
+
 function buildMonthlyReport(flows: FlowMaps, yearMonth: string): MonthlyReport {
-  const openingBalance = cumulativeNetBefore(flows, yearMonth);
+  const openingBalance = balanceBefore(flows, yearMonth);
 
   const duesItems = flows.duesLineItemsByMonth[yearMonth] ?? [];
   const otherItems = flows.otherIncomeLineItemsByMonth[yearMonth] ?? [];
@@ -224,7 +248,7 @@ export async function generateYearlyReport(year: number): Promise<YearlyReport> 
   const yearPrefix = String(year);
   const monthsInYear = flows.allMonths.filter((m) => m.startsWith(yearPrefix));
 
-  const openingBalance = cumulativeNetBefore(flows, `${yearPrefix}-01`);
+  const openingBalance = balanceBefore(flows, `${yearPrefix}-01`);
   const totalDues = monthsInYear.reduce((sum, m) => sum + sumItems(flows.duesLineItemsByMonth[m]), 0);
   const totalOtherIncome = monthsInYear.reduce((sum, m) => sum + sumItems(flows.otherIncomeLineItemsByMonth[m]), 0);
   const totalOutgoing = monthsInYear.reduce((sum, m) => sum + sumItems(flows.expenseLineItemsByMonth[m]), 0);
@@ -237,5 +261,6 @@ export async function generateYearlyReport(year: number): Promise<YearlyReport> 
     totalIncoming,
     totalOutgoing,
     closingBalance: openingBalance + totalIncoming - totalOutgoing,
+    openingEntry: flows.openingBalances.find((o) => o.year === year) ?? null,
   };
 }

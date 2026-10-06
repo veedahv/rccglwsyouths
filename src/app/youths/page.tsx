@@ -2,14 +2,21 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { listYouths, createYouth, setYouthInactive, reactivateYouth } from "@/lib/youths";
+import {
+  listYouths,
+  createYouth,
+  setYouthInactive,
+  reactivateYouth,
+  getYouthDeleteBlocker,
+  deleteYouth,
+} from "@/lib/youths";
 import { promoteYouthToExco } from "@/lib/excos";
 import { listRoleConfigs } from "@/lib/roles";
 import { useAuth } from "@/lib/useAuth";
 import { formatPersonName } from "@/lib/formatName";
 import RequireAuth from "@/components/RequireAuth";
 import YouthForm from "@/components/YouthForm";
-import { Page, PageHeader, Card, Field, Badge, Loading, EmptyState, Notice } from "@/components/ui";
+import { Page, PageHeader, Card, Field, Badge, Loading, EmptyState, Notice, Stat } from "@/components/ui";
 import type { Youth, InactiveReason, RoleConfig } from "@/types";
 
 const INACTIVE_REASON_LABEL: Record<InactiveReason, string> = {
@@ -18,13 +25,20 @@ const INACTIVE_REASON_LABEL: Record<InactiveReason, string> = {
   other: "Other",
 };
 
+type StatusFilter = "active" | "inactive" | "all";
+
 function YouthDirectoryInner() {
   const { hasPermission } = useAuth();
   const canManage = hasPermission("canManageRoles");
 
-  const [youths, setYouths] = useState<Youth[]>([]);
+  // The whole roster is loaded once; the filter and search narrow it client-side
+  // so the counts always cover everyone.
+  const [allYouths, setAllYouths] = useState<Youth[]>([]);
   const [search, setSearch] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
+  const [filter, setFilter] = useState<StatusFilter>("active");
+  const [deletingId, setDeletingId] = useState<string | null>(null); // row showing the confirm
+  const [busyDeleteId, setBusyDeleteId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [name, setName] = useState("");
@@ -39,15 +53,40 @@ function YouthDirectoryInner() {
   const [editingId, setEditingId] = useState<string | null>(null);
 
   async function refresh() {
-    setLoading(true);
-    setYouths(await listYouths({ activeOnly: !showInactive, search }));
+    setAllYouths(await listYouths());
     setLoading(false);
   }
 
   useEffect(() => {
     refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, showInactive]);
+  }, []);
+
+  const activeCount = allYouths.filter((y) => y.active).length;
+  const inactiveCount = allYouths.length - activeCount;
+  const term = search.trim().toLowerCase();
+  const youths = allYouths.filter(
+    (y) =>
+      (filter === "all" || (filter === "active") === y.active) && (!term || y.name.toLowerCase().includes(term))
+  );
+
+  async function handleDelete(youth: Youth) {
+    setDeleteError(null);
+    setBusyDeleteId(youth.id);
+    try {
+      const blocker = await getYouthDeleteBlocker(youth);
+      if (blocker) {
+        setDeleteError(`Can't delete ${formatPersonName(youth.name, youth.gender)}. ${blocker}`);
+      } else {
+        await deleteYouth(youth.id);
+        await refresh();
+      }
+    } catch {
+      setDeleteError(`Couldn't delete ${formatPersonName(youth.name, youth.gender)}. Try again.`);
+    } finally {
+      setBusyDeleteId(null);
+      setDeletingId(null);
+    }
+  }
 
   // Only people who can manage excos see "Make exco", so only they need the role list.
   useEffect(() => {
@@ -148,6 +187,29 @@ function YouthDirectoryInner() {
         )}
 
         {promoteError && <Notice tone="error">{promoteError}</Notice>}
+        {deleteError && <Notice tone="error">{deleteError}</Notice>}
+
+        <div className="grid grid-cols-3 gap-3">
+          {(
+            [
+              ["active", "Active", activeCount],
+              ["inactive", "Inactive", inactiveCount],
+              ["all", "All youths", allYouths.length],
+            ] as const
+          ).map(([value, label, count]) => (
+            <button
+              key={value}
+              onClick={() => setFilter(value)}
+              aria-pressed={filter === value}
+              className={[
+                "card !p-4 text-left transition-colors",
+                filter === value ? "!border-rccg-purple-400 bg-rccg-purple-50" : "hover:border-rccg-purple-300",
+              ].join(" ")}
+            >
+              <Stat label={label} value={count} tone={value === "active" ? "green" : value === "all" ? "purple" : "default"} />
+            </button>
+          ))}
+        </div>
 
         <div className="flex flex-wrap items-center gap-4">
           <input
@@ -157,21 +219,25 @@ function YouthDirectoryInner() {
             aria-label="Search by name"
             className="input sm:max-w-xs"
           />
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={showInactive}
-              onChange={(e) => setShowInactive(e.target.checked)}
-              className="h-4 w-4 accent-rccg-green-600"
-            />
-            Show inactive
-          </label>
+          <p className="text-sm text-muted">
+            Showing <span className="num font-semibold text-ink">{youths.length}</span>{" "}
+            {filter === "all" ? "youths" : `${filter} ${youths.length === 1 ? "youth" : "youths"}`}
+          </p>
         </div>
 
         {loading ? (
           <Loading />
         ) : youths.length === 0 ? (
-          <EmptyState title="No youths found" description={search ? "Try a different spelling." : "Add the first youth to get started."} />
+          <EmptyState
+            title="No youths found"
+            description={
+              search
+                ? "Try a different spelling."
+                : allYouths.length > 0
+                  ? `There are no ${filter} youths.`
+                  : "Add the first youth to get started."
+            }
+          />
         ) : (
           <div className="overflow-x-auto rounded-xl border border-line bg-white">
             <table className="tbl">
@@ -275,6 +341,32 @@ function YouthDirectoryInner() {
                             className="btn-ghost"
                           >
                             Make exco
+                          </button>
+                        ))}
+                      {canManage &&
+                        (deletingId === y.id ? (
+                          <span className="ml-1 inline-flex items-center gap-1 text-xs">
+                            <span className="text-muted">Delete for good?</span>
+                            <button
+                              onClick={() => handleDelete(y)}
+                              disabled={busyDeleteId === y.id}
+                              className="btn-ghost-danger"
+                            >
+                              {busyDeleteId === y.id ? "Deleting…" : "Yes, delete"}
+                            </button>
+                            <button onClick={() => setDeletingId(null)} className="btn-ghost">
+                              Cancel
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setDeleteError(null);
+                              setDeletingId(y.id);
+                            }}
+                            className="btn-ghost-danger"
+                          >
+                            Delete
                           </button>
                         ))}
                     </td>

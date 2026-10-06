@@ -92,7 +92,10 @@ service cloud.firestore {
     match /youths/{youthId} {
       allow read: if isExco();
       allow create, update: if isExco();
-      allow delete: if false; // mark inactive instead of deleting
+      // Deleting is permanent, so it's limited to people who manage roles.
+      // The app also refuses to delete anyone with dues or pledges on
+      // record (mark them inactive instead).
+      allow delete: if hasPermission('canManageRoles');
 
       match /dues/{yearMonth} {
         allow read: if isExco();
@@ -126,6 +129,13 @@ service cloud.firestore {
     // without a collection name in between), so these are plain
     // top-level collections instead.
     match /transactions/{txId} {
+      allow read: if isExco();
+      allow write: if hasPermission('canEditFinance');
+    }
+
+    // One doc per year (id = the year, e.g. "2026"): the balance carried
+    // over into that year, split by cash and transfer.
+    match /openingBalances/{year} {
       allow read: if isExco();
       allow write: if hasPermission('canEditFinance');
     }
