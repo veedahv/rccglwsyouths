@@ -41,3 +41,18 @@ export function daysBetween(fromISO: string, toISO: string): number {
 export function pluralize(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+/** "14:30" → "2:30 PM". Empty/absent → "". */
+export function formatTime(time?: string | null): string {
+  if (!time) return "";
+  const [h, m] = time.split(":").map(Number);
+  if (Number.isNaN(h)) return time; // older free-text values are shown as written
+  const d = new Date(2000, 0, 1, h, m || 0);
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+/** "12 Dec 2026 · 2:30 PM", or just the date when no time is set. */
+export function formatDateTime(date: string, time?: string | null): string {
+  const t = formatTime(time);
+  return t ? `${formatDate(date)} · ${t}` : formatDate(date);
+}

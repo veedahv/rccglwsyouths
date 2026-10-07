@@ -21,6 +21,7 @@ import type {
   EventDocument,
   EventDocumentKind,
   ExcoMember,
+  NeededItem,
 } from "@/types";
 
 /* ---------------------------------------------------------------------------
@@ -168,7 +169,7 @@ export function newDocumentData(params: {
     sections: sponsorshipSections(),
     recipientName: recipientName?.trim() || undefined,
     includeBudget: true,
-    itemsRequested: [],
+    requestedItemIds: [],
     contacts: [],
   };
 }
@@ -184,6 +185,17 @@ export function documentBudgetTotal(document: EventDocument, event: ChurchEvent)
   return budgetTotal(documentBudget(document, event));
 }
 
+/**
+ * The items a sponsorship request asks for: the frozen copy once signed,
+ * otherwise whichever of the event's needed items are ticked (so notes
+ * such as "2 bags received" stay current while it's still a draft).
+ */
+export function documentItems(document: EventDocument, event: ChurchEvent): NeededItem[] {
+  if (document.itemsSnapshot) return document.itemsSnapshot;
+  const chosen = new Set(document.requestedItemIds ?? []);
+  return (event.neededItems ?? []).filter((i) => chosen.has(i.id));
+}
+
 /** Everything a signed document needs to be complete — shown as a checklist before signing. */
 export function documentProblems(document: EventDocument, event: ChurchEvent): string[] {
   const problems: string[] = [];
@@ -193,8 +205,8 @@ export function documentProblems(document: EventDocument, event: ChurchEvent): s
   if (document.kind === "sponsorship") {
     if (!document.recipientName?.trim()) problems.push("Say who the request is addressed to.");
     const hasCash = (document.cashRequested ?? 0) > 0;
-    const hasItems = (document.itemsRequested?.length ?? 0) > 0;
-    if (!hasCash && !hasItems) problems.push("State what you're asking for: an amount, items, or both.");
+    const hasItems = documentItems(document, event).length > 0;
+    if (!hasCash && !hasItems) problems.push("State what you're asking for: an amount, or tick items from the event's list, or both.");
     if (document.includeBudget !== false && (event.budget?.length ?? 0) === 0 && !document.budgetSnapshot) {
       problems.push("The event has no budget yet. Add one on the event page, or switch the budget off for this letter.");
     }

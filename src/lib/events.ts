@@ -9,7 +9,7 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { ChurchEvent, AgendaItem, EventTask, BudgetItem } from "@/types";
+import type { ChurchEvent, AgendaItem, EventTask, BudgetItem, NeededItem } from "@/types";
 
 export async function listEvents(): Promise<ChurchEvent[]> {
   const q = query(collection(db, "events"), orderBy("date", "desc"));
@@ -61,9 +61,28 @@ export async function createEvent(data: NewEventInput): Promise<string> {
  */
 export async function updateEventDetails(
   id: string,
-  data: { title: string; date: string; theme: string }
+  data: {
+    title: string;
+    date: string;
+    theme: string;
+    time: string;
+    venue: string;
+    expectedAttendance: string;
+  }
 ): Promise<void> {
-  await updateDoc(doc(db, "events", id), { ...data, theme: data.theme.trim() });
+  await updateDoc(doc(db, "events", id), {
+    title: data.title.trim(),
+    date: data.date,
+    theme: data.theme.trim(),
+    time: data.time,
+    venue: data.venue.trim(),
+    expectedAttendance: data.expectedAttendance.trim(),
+  });
+}
+
+/** The event's list of things it needs people to bring or give. */
+export async function updateEventNeededItems(id: string, neededItems: NeededItem[]): Promise<void> {
+  await updateDoc(doc(db, "events", id), { neededItems });
 }
 
 export async function updateEventBudget(id: string, budget: BudgetItem[]): Promise<void> {

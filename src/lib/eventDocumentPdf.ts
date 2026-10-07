@@ -21,7 +21,8 @@ import {
   loadReportLogos,
   longDate,
 } from "./reportPdf";
-import { documentBudget, documentBudgetTotal, DOCUMENT_KIND_LABEL } from "./eventDocuments";
+import { documentBudget, documentBudgetTotal, documentItems, DOCUMENT_KIND_LABEL } from "./eventDocuments";
+import { formatTime } from "./format";
 import type { ChurchEvent, DocumentSection, DocumentSignatory, EventDocument } from "@/types";
 
 /* ---------------------------------------------------------------------------
@@ -157,9 +158,9 @@ function drawBudget(ctx: Ctx, document: EventDocument, event: ChurchEvent) {
   ctx.y += 7;
 }
 
-function drawRequest(ctx: Ctx, document: EventDocument) {
+function drawRequest(ctx: Ctx, document: EventDocument, event: ChurchEvent) {
   const cash = document.cashRequested ?? 0;
-  const items = document.itemsRequested ?? [];
+  const items = documentItems(document, event);
   if (cash <= 0 && items.length === 0) return;
 
   drawSectionTitle(ctx, "What we are requesting", GREEN, 36);
@@ -191,7 +192,7 @@ function drawRequest(ctx: Ctx, document: EventDocument) {
         { text: String(i + 1) },
         { text: pdfSafe(it.name) },
         { text: pdfSafe(it.quantity) },
-        { text: pdfSafe(it.notes ?? "") },
+        { text: pdfSafe(it.note ?? "") },
       ]);
     });
     ctx.y += 6;
@@ -397,10 +398,9 @@ export function buildEventDocumentPdf(
   drawFacts(ctx, [
     ["Event", event.title],
     ["Theme", event.theme],
-    ["Date", longDate(event.date)],
-    ["Time", document.time],
-    ["Venue", document.venue],
-    ["Expected attendance", document.expectedAttendance],
+    ["Date and time", event.time ? `${longDate(event.date)}  |  ${formatTime(event.time)}` : longDate(event.date)],
+    ["Venue", event.venue],
+    ["Expected attendance", event.expectedAttendance],
   ]);
 
   const sections = document.sections;
@@ -409,7 +409,7 @@ export function buildEventDocumentPdf(
   const drawTables = () => {
     if (isSponsorship) {
       if (document.includeBudget !== false) drawBudget(ctx, document, event);
-      drawRequest(ctx, document);
+      drawRequest(ctx, document, event);
       drawContacts(ctx, document);
     } else {
       drawAgenda(ctx, event, options.ownerNames ?? {});

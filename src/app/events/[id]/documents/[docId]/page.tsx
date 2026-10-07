@@ -9,18 +9,19 @@ import {
   DOCUMENT_KIND_LABEL,
   deleteEventDocument,
   documentBudget,
+  documentItems,
   documentProblems,
   getEventDocument,
   saveEventDocument,
 } from "@/lib/eventDocuments";
 import { downloadEventDocumentPdf } from "@/lib/eventDocumentPdf";
 import { fallbackRoleLabel } from "@/lib/roles";
-import { formatDate, naira } from "@/lib/format";
+import { formatDate, formatDateTime, naira } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
 import {
   ContactsEditor,
-  RequestedItemsEditor,
+  RequestedItemsPicker,
   SectionsEditor,
   SignatoriesEditor,
 } from "@/components/DocumentEditors";
@@ -136,7 +137,9 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
         status: "signed",
         // A sponsorship request keeps the budget it was actually sent with,
         // even if the event's budget changes afterwards.
-        ...(draft.kind === "sponsorship" ? { budgetSnapshot: event.budget ?? [] } : {}),
+        ...(draft.kind === "sponsorship"
+          ? { budgetSnapshot: event.budget ?? [], itemsSnapshot: documentItems(draft, event) }
+          : {}),
       },
       "Marked as signed."
     );
@@ -155,6 +158,7 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
         ...draft,
         status: "draft",
         budgetSnapshot: undefined,
+        itemsSnapshot: undefined,
         signatories: draft.signatories.map(({ signatureDataUrl, signedOn, ...rest }) => {
           void signatureDataUrl;
           void signedOn;
@@ -245,32 +249,6 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
                 className="input"
               />
             </Field>
-            <Field label="Venue">
-              <input
-                value={draft.venue ?? ""}
-                onChange={(e) => set({ venue: e.target.value })}
-                disabled={!canEdit}
-                className="input"
-              />
-            </Field>
-            <Field label="Time">
-              <input
-                value={draft.time ?? ""}
-                onChange={(e) => set({ time: e.target.value })}
-                disabled={!canEdit}
-                placeholder="e.g. 10:00 AM"
-                className="input"
-              />
-            </Field>
-            <Field label="Expected attendance" className="sm:col-span-2">
-              <input
-                value={draft.expectedAttendance ?? ""}
-                onChange={(e) => set({ expectedAttendance: e.target.value })}
-                disabled={!canEdit}
-                placeholder="e.g. About 60 youths and 40 children"
-                className="input"
-              />
-            </Field>
             {!isSponsorship && (
               <Field label="Submitted to" className="sm:col-span-2">
                 <input
@@ -284,7 +262,13 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
             )}
           </div>
           <p className="hint">
-            The event’s title, theme and date come from the event itself ({event.theme ? `theme: ${event.theme}` : "no theme yet"}).
+            The event’s title, theme, date and time, venue and expected attendance are taken from the event
+            ({formatDateTime(event.date, event.time)}
+            {event.venue ? ` · ${event.venue}` : " · no venue yet"}). Change them on the{" "}
+            <Link href={`/events/${eventId}`} className="link">
+              event page
+            </Link>
+            .
           </p>
         </Card>
 
@@ -400,7 +384,7 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
 
             <Card
               title="What you are requesting"
-              description="Cash, items, or both. Items are what people can bring: clothes, foodstuff, and so on."
+              description="Cash, items, or both. Items are picked from the event’s “Items needed” list."
             >
               <div className="space-y-5">
                 <Field label="Cash requested (₦)" hint="Leave blank if you are only asking for items.">
@@ -429,11 +413,28 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
 
                 <div>
                   <span className="label">Items requested</span>
-                  <RequestedItemsEditor
-                    items={draft.itemsRequested ?? []}
-                    canEdit={canEdit}
-                    onChange={(itemsRequested) => set({ itemsRequested })}
-                  />
+                  {(event.neededItems?.length ?? 0) === 0 ? (
+                    <p className="text-sm text-muted">
+                      The event has no items listed yet.{" "}
+                      <Link href={`/events/${eventId}`} className="link">
+                        Add them under “Items needed” on the event page
+                      </Link>
+                      , then tick the ones to ask this sponsor for.
+                    </p>
+                  ) : (
+                    <>
+                      <RequestedItemsPicker
+                        items={signed ? documentItems(draft, event) : event.neededItems ?? []}
+                        selectedIds={signed ? documentItems(draft, event).map((i) => i.id) : draft.requestedItemIds ?? []}
+                        canEdit={canEdit}
+                        onChange={(requestedItemIds) => set({ requestedItemIds })}
+                      />
+                      <p className="hint">
+                        Tick what to ask this sponsor for. Quantities and notes come from the event’s list, so
+                        update “what we’ve gotten” there and it shows here.
+                      </p>
+                    </>
+                  )}
                 </div>
 
                 <Field label="Payment details (optional)" hint="Where cash should be paid, e.g. account name, number and bank.">
@@ -474,7 +475,7 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
             {readyToSign ? (
               <p className="mb-3 text-sm text-muted">
                 Everyone has signed. Marking it as signed locks the document
-                {isSponsorship ? " and freezes the budget it shows" : ""}.
+                {isSponsorship ? " and freezes the budget and items it shows" : ""}.
               </p>
             ) : (
               <ul className="mb-3 list-disc space-y-1 pl-5 text-sm text-muted">

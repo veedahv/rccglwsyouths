@@ -268,10 +268,26 @@ export interface BudgetItem {
   price: number; // ₦
 }
 
+// Something the event needs people to bring or give — clothes, a bag of
+// rice, chairs. `quantity` is free text, phrased the way people say it
+// ("A big or half bag", "3 packs"). `note` is for what has been gotten so
+// far ("2 bags already received"), and is printed beside the item on a
+// sponsorship request.
+export interface NeededItem {
+  id: string;
+  name: string;
+  quantity: string;
+  note?: string;
+}
+
 export interface ChurchEvent {
   id: string;
   title: string;
   date: string;
+  time?: string; // "HH:mm", 24-hour as the time input gives it; blank until decided
+  venue?: string;
+  expectedAttendance?: string; // free text, e.g. "About 60 youths and 40 children"
+  neededItems?: NeededItem[]; // the event's shopping/wish list, shared by its sponsorship requests
   // Optional, and often decided late in the planning, so it can be left
   // blank at first and added or changed at any time. Empty means "none yet".
   theme?: string;
@@ -367,16 +383,6 @@ export interface DocumentSection {
   body: string;
 }
 
-// One thing asked of a sponsor. `quantity` is free text on purpose: the
-// asks are phrased the way people say them ("A big or half bag of rice",
-// "3 packs", "A basket").
-export interface RequestedItem {
-  id: string;
-  name: string;
-  quantity: string;
-  notes?: string;
-}
-
 export interface DocumentSignatory {
   id: string;
   name: string;
@@ -401,9 +407,6 @@ export interface EventDocument {
   status: EventDocumentStatus;
   ref?: string; // optional reference number printed on the letter
   documentDate: string; // ISO date printed on it
-  venue?: string;
-  time?: string; // free text, e.g. "10:00 AM"
-  expectedAttendance?: string; // free text, e.g. "About 60 youths and 40 children"
   sections: DocumentSection[];
   signatories: DocumentSignatory[];
   // Proposal only — who it's submitted to (e.g. "The Pastor-in-Charge").
@@ -413,7 +416,10 @@ export interface EventDocument {
   recipientOrganisation?: string;
   recipientAddress?: string;
   cashRequested?: number | null; // ₦ asked for in cash; null/absent = none
-  itemsRequested?: RequestedItem[];
+  // Which of the event's needed items this letter asks for (picked by
+  // checkbox from the event's list).
+  requestedItemIds?: string[];
+  itemsSnapshot?: NeededItem[]; // frozen copy of those items, taken when signed
   includeBudget?: boolean; // show the event's budget breakdown (default true)
   budgetSnapshot?: BudgetItem[]; // frozen copy taken when signed
   paymentDetails?: string; // where cash should be paid

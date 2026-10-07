@@ -8,6 +8,7 @@ import {
   updateEventAgenda,
   updateEventTasks,
   updateEventBudget,
+  updateEventNeededItems,
   budgetTotal,
   updateEventPlanningNotes,
   updateEventAfterEventReport,
@@ -17,7 +18,7 @@ import { listEventDocuments } from "@/lib/eventDocuments";
 import { listYouths } from "@/lib/youths";
 import { getContribution, getPledges, listExternalSupport, computeStats, ContributionStats } from "@/lib/contributions";
 import { contributionPeriod, contributionTiming } from "@/lib/contributionStatus";
-import { formatDate, naira, todayISO } from "@/lib/format";
+import { formatDate, formatDateTime, naira, todayISO } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
 import AttendanceChecklist from "@/components/AttendanceChecklist";
@@ -25,6 +26,7 @@ import AgendaEditor from "@/components/AgendaEditor";
 import TaskAssignment from "@/components/TaskAssignment";
 import EditableSection from "@/components/EditableSection";
 import BudgetEditor from "@/components/BudgetEditor";
+import NeededItemsEditor from "@/components/NeededItemsEditor";
 import StartEventContribution from "@/components/StartEventContribution";
 import EventDocuments from "@/components/EventDocuments";
 import { Page, PageHeader, Card, Badge, Field, Loading, Notice } from "@/components/ui";
@@ -36,6 +38,7 @@ import type {
   AgendaItem,
   EventTask,
   BudgetItem,
+  NeededItem,
   Contribution,
   EventDocument,
 } from "@/types";
@@ -54,6 +57,9 @@ function EventDetailInner({ id }: { id: string }) {
   const [titleDraft, setTitleDraft] = useState("");
   const [dateDraft, setDateDraft] = useState("");
   const [themeDraft, setThemeDraft] = useState("");
+  const [timeDraft, setTimeDraft] = useState("");
+  const [venueDraft, setVenueDraft] = useState("");
+  const [attendanceDraft, setAttendanceDraft] = useState("");
   const [savingDetails, setSavingDetails] = useState(false);
 
   const [contribution, setContribution] = useState<Contribution | null>(null);
@@ -112,19 +118,43 @@ function EventDetailInner({ id }: { id: string }) {
     await updateEventBudget(id, budget);
   }
 
+  async function handleNeededItemsChange(neededItems: NeededItem[]) {
+    if (!event) return;
+    setEvent({ ...event, neededItems }); // optimistic
+    await updateEventNeededItems(id, neededItems);
+  }
+
   function startEditingDetails() {
     if (!event) return;
     setTitleDraft(event.title);
     setDateDraft(event.date);
     setThemeDraft(event.theme ?? "");
+    setTimeDraft(event.time ?? "");
+    setVenueDraft(event.venue ?? "");
+    setAttendanceDraft(event.expectedAttendance ?? "");
     setEditingDetails(true);
   }
 
   async function saveDetails() {
     if (!titleDraft.trim() || !event) return;
     setSavingDetails(true);
-    await updateEventDetails(id, { title: titleDraft, date: dateDraft, theme: themeDraft });
-    setEvent({ ...event, title: titleDraft, date: dateDraft, theme: themeDraft.trim() });
+    await updateEventDetails(id, {
+      title: titleDraft,
+      date: dateDraft,
+      theme: themeDraft,
+      time: timeDraft,
+      venue: venueDraft,
+      expectedAttendance: attendanceDraft,
+    });
+    setEvent({
+      ...event,
+      title: titleDraft.trim(),
+      date: dateDraft,
+      theme: themeDraft.trim(),
+      time: timeDraft,
+      venue: venueDraft.trim(),
+      expectedAttendance: attendanceDraft.trim(),
+    });
     setSavingDetails(false);
     setEditingDetails(false);
   }
@@ -152,16 +182,27 @@ function EventDetailInner({ id }: { id: string }) {
             <Field label="Title">
               <input value={titleDraft} onChange={(e) => setTitleDraft(e.target.value)} className="input" />
             </Field>
-            <Field label="Date">
-              <input
-                type="date"
-                value={dateDraft}
-                onChange={(e) => setDateDraft(e.target.value)}
-                className="input sm:w-auto"
-              />
-            </Field>
+            <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+              <Field label="Date">
+                <input type="date" value={dateDraft} onChange={(e) => setDateDraft(e.target.value)} className="input" />
+              </Field>
+              <Field label="Time (optional)">
+                <input type="time" value={timeDraft} onChange={(e) => setTimeDraft(e.target.value)} className="input" />
+              </Field>
+            </div>
             <Field label="Theme (optional)" hint="Leave blank if it hasn't been decided yet.">
               <input value={themeDraft} onChange={(e) => setThemeDraft(e.target.value)} className="input" />
+            </Field>
+            <Field label="Venue (optional)">
+              <input value={venueDraft} onChange={(e) => setVenueDraft(e.target.value)} className="input" />
+            </Field>
+            <Field label="Expected attendance (optional)">
+              <input
+                value={attendanceDraft}
+                onChange={(e) => setAttendanceDraft(e.target.value)}
+                placeholder="e.g. About 60 youths and 40 children"
+                className="input"
+              />
             </Field>
             <div className="flex gap-2">
               <button onClick={saveDetails} disabled={savingDetails} className="btn-primary btn-sm">
@@ -178,13 +219,13 @@ function EventDetailInner({ id }: { id: string }) {
           title={event.title}
           backHref="/events"
           backLabel="Events"
-          description={
-            event.theme
-              ? `${formatDate(event.date)} · Theme: ${event.theme}`
-              : canEditEvent
-              ? `${formatDate(event.date)} · No theme yet`
-              : formatDate(event.date)
-          }
+          description={[
+            formatDateTime(event.date, event.time),
+            event.venue,
+            event.theme ? `Theme: ${event.theme}` : canEditEvent ? "No theme yet" : undefined,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
           actions={
             <>
               {event.programmeId && (
@@ -231,6 +272,13 @@ function EventDetailInner({ id }: { id: string }) {
           }
         >
           <BudgetEditor items={event.budget ?? []} canEdit={canEditEvent} onChange={handleBudgetChange} />
+        </Card>
+
+        <Card
+          title="Items needed"
+          description="What the event needs people to bring or give. Use the note to record what has been gotten so far. Sponsorship requests pick from this list."
+        >
+          <NeededItemsEditor items={event.neededItems ?? []} canEdit={canEditEvent} onChange={handleNeededItemsChange} />
         </Card>
 
         <Card

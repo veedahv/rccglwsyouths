@@ -9,7 +9,7 @@ import type {
   DocumentSection,
   DocumentSignatory,
   ExcoMember,
-  RequestedItem,
+  NeededItem,
 } from "@/types";
 
 /* -------------------------------------------------------------------------
@@ -117,129 +117,68 @@ export function SectionsEditor({
 
 /* --------------------------- items being requested ---------------------- */
 
-export function RequestedItemsEditor({
+/**
+ * The event's needed items, each with a checkbox at the side: tick the
+ * ones this letter asks for. Names, quantities and notes are edited on the
+ * event page (the note is where "what we've gotten so far" goes) and only
+ * shown here.
+ */
+export function RequestedItemsPicker({
   items,
+  selectedIds,
   canEdit,
   onChange,
 }: {
-  items: RequestedItem[];
+  items: NeededItem[];
+  selectedIds: string[];
   canEdit: boolean;
-  onChange: (items: RequestedItem[]) => void;
+  onChange: (ids: string[]) => void;
 }) {
-  const [name, setName] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [notes, setNotes] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const selected = new Set(selectedIds);
+  const allSelected = items.length > 0 && items.every((i) => selected.has(i.id));
 
-  function add() {
-    if (!name.trim()) return setError("Enter the item.");
-    if (!quantity.trim()) return setError("Say how much or how many, e.g. “3 packs”.");
-    setError(null);
-    onChange([...items, { id: newId(), name: name.trim(), quantity: quantity.trim(), ...(notes.trim() ? { notes: notes.trim() } : {}) }]);
-    setName("");
-    setQuantity("");
-    setNotes("");
-  }
-
-  function update(id: string, patch: Partial<RequestedItem>) {
-    onChange(items.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  function toggle(id: string) {
+    onChange(selected.has(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id]);
   }
 
   return (
-    <div>
-      {items.length === 0 ? (
-        <p className="mb-3 text-sm text-muted">No items added yet.</p>
-      ) : (
-        <div className="mb-3 overflow-x-auto rounded-lg border border-line">
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Quantity</th>
-                <th>Notes</th>
-                {canEdit && <th />}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((it) => (
-                <tr key={it.id}>
-                  <td>
-                    <input
-                      value={it.name}
-                      onChange={(e) => update(it.id, { name: e.target.value })}
-                      disabled={!canEdit}
-                      aria-label="Item"
-                      className="input min-w-[9rem]"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      value={it.quantity}
-                      onChange={(e) => update(it.id, { quantity: e.target.value })}
-                      disabled={!canEdit}
-                      aria-label="Quantity"
-                      className="input min-w-[9rem]"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      value={it.notes ?? ""}
-                      onChange={(e) => update(it.id, { notes: e.target.value })}
-                      disabled={!canEdit}
-                      aria-label="Notes"
-                      className="input min-w-[9rem]"
-                    />
-                  </td>
-                  {canEdit && (
-                    <td className="text-right">
-                      <button
-                        type="button"
-                        onClick={() => onChange(items.filter((x) => x.id !== it.id))}
-                        className="btn-ghost-danger"
-                      >
-                        Remove
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {canEdit && (
-        <div>
-          <div className="flex flex-wrap items-end gap-2">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Item, e.g. Rice"
-              aria-label="New item"
-              className="input min-w-[9rem] flex-1"
-            />
-            <input
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              placeholder="e.g. A big or half bag"
-              aria-label="New item quantity"
-              className="input min-w-[9rem] flex-1"
-            />
-            <input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Notes (optional)"
-              aria-label="New item notes"
-              className="input min-w-[9rem] flex-1"
-            />
-            <button type="button" onClick={add} className="btn-secondary">
-              Add item
-            </button>
-          </div>
-          {error && <p className="mt-1.5 text-sm text-rccg-red-600">{error}</p>}
-          <p className="hint">Write the quantity the way you would say it: “A basket”, “3 packs”, “Half a pack”.</p>
-        </div>
-      )}
+    <div className="overflow-x-auto rounded-lg border border-line">
+      <table className="tbl">
+        <thead>
+          <tr>
+            <th className="w-10">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={() => onChange(allSelected ? [] : items.map((i) => i.id))}
+                disabled={!canEdit}
+                aria-label="Select all items"
+              />
+            </th>
+            <th>Item</th>
+            <th>Quantity</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((it) => (
+            <tr key={it.id} className={selected.has(it.id) ? "bg-rccg-purple-50/60" : ""}>
+              <td>
+                <input
+                  type="checkbox"
+                  checked={selected.has(it.id)}
+                  onChange={() => toggle(it.id)}
+                  disabled={!canEdit}
+                  aria-label={`Request ${it.name}`}
+                />
+              </td>
+              <td className="font-medium">{it.name}</td>
+              <td>{it.quantity}</td>
+              <td className="text-muted">{it.note || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
