@@ -14,7 +14,15 @@ import {
 import { db } from "./firebase";
 import { todayISO } from "./format";
 import { getPledgeStatus } from "./contributionStatus";
-import type { Contribution, Pledge, PledgedItem, Payment, PaymentMethod, ExternalSupport } from "@/types";
+import type {
+  Contribution,
+  Pledge,
+  PledgedItem,
+  Payment,
+  PaymentMethod,
+  ExternalSupport,
+  ExternalSupportItem,
+} from "@/types";
 
 export async function listContributions(): Promise<Contribution[]> {
   const q = query(collection(db, "contributions"), orderBy("createdAt", "desc"));
@@ -175,12 +183,34 @@ export async function listExternalSupport(contributionId: string): Promise<Exter
  * Records support from someone outside the youth roster — a parent, a
  * pastor, etc. Unlike a youth's redemption this is never tied to a
  * pledge (there's nothing to top up), so it's just a flat add each time.
+ * Support can be money, items, or both: an items-only gift has an
+ * amount of 0.
  */
 export async function addExternalSupport(
   contributionId: string,
-  data: { name: string; amount: number; method: PaymentMethod; date: string; recordedBy: string }
+  data: {
+    name: string;
+    amount: number;
+    method: PaymentMethod;
+    date: string;
+    items?: { name: string; quantity: number; unit?: string }[];
+    recordedBy: string;
+  }
 ): Promise<string> {
-  const ref = await addDoc(collection(db, `contributions/${contributionId}/externalSupport`), data);
+  const { items, ...rest } = data;
+  // Firestore rejects `undefined`, so a missing unit or an empty list is left out entirely.
+  const payload: Record<string, unknown> = { ...rest };
+  if (items && items.length > 0) {
+    payload.items = items.map(
+      (i): ExternalSupportItem => ({
+        id: newItemId(),
+        name: i.name.trim(),
+        quantity: i.quantity,
+        ...(i.unit?.trim() ? { unit: i.unit.trim() } : {}),
+      })
+    );
+  }
+  const ref = await addDoc(collection(db, `contributions/${contributionId}/externalSupport`), payload);
   return ref.id;
 }
 
@@ -188,6 +218,13 @@ export async function addExternalSupport(
 export interface ItemTotal {
   name: string;
   pledged: number;
+  received: number;
+}
+
+/** One kind of item given by external supporters, e.g. all the rice, added up. */
+export interface ExternalItemTotal {
+  name: string;
+  unit?: string;
   received: number;
 }
 
@@ -215,6 +252,12 @@ export interface ContributionStats {
    * ever added within the same item, never across different items.
    */
   itemTotals: ItemTotal[];
+  /**
+   * Items given by external supporters, rolled up by name and unit. Kept
+   * apart from itemTotals because nobody pledges these — there's no
+   * "pledged" figure to compare against.
+   */
+  externalItemTotals: ExternalItemTotal[];
 }
 
 export function computeStats(pledges: Pledge[], externalSupport: ExternalSupport[] = []): ContributionStats {
@@ -264,6 +307,20 @@ export function computeStats(pledges: Pledge[], externalSupport: ExternalSupport
   }
   const itemTotals = [...itemMap.values()].sort((a, b) => a.name.localeCompare(b.name));
 
+  // Same item and same unit add together ("2 bags" + "1 bag" of rice); a
+  // different unit stays on its own line rather than being guessed at.
+  const externalItemMap = new Map<string, ExternalItemTotal>();
+  for (const support of externalSupport) {
+    for (const item of support.items ?? []) {
+      const unit = item.unit?.trim() || undefined;
+      const key = `${item.name.trim().toLowerCase()}|${(unit ?? "").toLowerCase()}`;
+      const total = externalItemMap.get(key) ?? { name: item.name.trim(), unit, received: 0 };
+      total.received += item.quantity;
+      externalItemMap.set(key, total);
+    }
+  }
+  const externalItemTotals = [...externalItemMap.values()].sort((a, b) => a.name.localeCompare(b.name));
+
   const externalReceived = externalSupport.reduce((sum, s) => sum + s.amount, 0);
   const totalReceived = youthReceived + externalReceived;
 
@@ -280,6 +337,7 @@ export function computeStats(pledges: Pledge[], externalSupport: ExternalSupport
     unpledgedGiverCount,
     percentReceived: totalPledged > 0 ? Math.round((totalReceived / totalPledged) * 100) : null,
     itemTotals,
+    externalItemTotals,
   };
 }
 

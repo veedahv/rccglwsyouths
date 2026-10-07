@@ -1,17 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { addExternalSupport } from "@/lib/contributions";
+import { addExternalSupport, newItemId } from "@/lib/contributions";
 import { useAuth } from "@/lib/useAuth";
 import { formatDate, naira, todayISO } from "@/lib/format";
 import { EmptyState, Field, Notice } from "@/components/ui";
-import type { ExternalSupport, PaymentMethod } from "@/types";
+import ItemEntry from "@/components/ItemEntry";
+import type { ExternalSupport, ExternalSupportItem, PaymentMethod } from "@/types";
 
 interface Props {
   contributionId: string;
   externalSupport: ExternalSupport[];
   canEdit: boolean;
   onChange: () => void; // caller refetches after a write
+}
+
+/** "2 bags of Rice", "0.5 pack of Spaghetti", "5 Pads" — how a given item reads in a list. */
+export function describeItem(item: Pick<ExternalSupportItem, "name" | "quantity" | "unit">): string {
+  const qty = Number.isInteger(item.quantity) ? String(item.quantity) : item.quantity.toFixed(1);
+  return item.unit ? `${qty} ${item.unit} of ${item.name}` : `${qty} × ${item.name}`;
 }
 
 export default function ExternalSupportList({
@@ -26,24 +33,38 @@ export default function ExternalSupportList({
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [date, setDate] = useState(() => todayISO());
+  const [items, setItems] = useState<ExternalSupportItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function resetForm() {
+    setName("");
+    setAmount("");
+    setItems([]);
+    setError(null);
+  }
+
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || !amount || !user) return;
+    if (!user) return;
+    const money = amount.trim() === "" ? 0 : Number(amount);
+    if (!name.trim()) return setError("Enter who this is from.");
+    if (Number.isNaN(money) || money < 0) return setError("Enter an amount of ₦0 or more.");
+    // Money, items, or both — but never nothing.
+    if (money === 0 && items.length === 0) return setError("Enter an amount, add at least one item, or both.");
+
     setSaving(true);
     setError(null);
     try {
       await addExternalSupport(contributionId, {
         name: name.trim(),
-        amount: Number(amount),
+        amount: money,
         method,
         date,
+        items: items.map(({ name, quantity, unit }) => ({ name, quantity, unit })),
         recordedBy: user.uid,
       });
-      setName("");
-      setAmount("");
+      resetForm();
       setShowForm(false);
       onChange();
     } catch {
@@ -54,12 +75,13 @@ export default function ExternalSupportList({
   }
 
   const total = externalSupport.reduce((sum, s) => sum + s.amount, 0);
+  const hasItems = externalSupport.some((s) => (s.items?.length ?? 0) > 0);
 
   return (
     <div>
       <p className="mb-3 text-sm text-muted">
-        From people outside the youth roster, such as parents or pastors. Counts toward total received,
-        never total pledged.
+        From people outside the youth roster, such as parents or pastors. Can be money, items (clothes,
+        foodstuff, anything the drive needs), or both. Counts toward total received, never total pledged.
       </p>
 
       {externalSupport.length === 0 ? (
@@ -71,6 +93,7 @@ export default function ExternalSupportList({
               <tr>
                 <th>Name</th>
                 <th>Date</th>
+                {hasItems && <th>Items</th>}
                 <th>Method</th>
                 <th className="text-right">Amount</th>
               </tr>
@@ -80,14 +103,27 @@ export default function ExternalSupportList({
                 <tr key={s.id}>
                   <td className="font-medium">{s.name}</td>
                   <td className="whitespace-nowrap text-muted">{formatDate(s.date)}</td>
-                  <td className="capitalize text-muted">{s.method}</td>
-                  <td className="num text-right">{naira(s.amount)}</td>
+                  {hasItems && (
+                    <td className="text-sm">
+                      {(s.items?.length ?? 0) === 0 ? (
+                        <span className="text-muted">—</span>
+                      ) : (
+                        <ul className="space-y-0.5">
+                          {s.items!.map((item) => (
+                            <li key={item.id}>{describeItem(item)}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
+                  )}
+                  <td className="capitalize text-muted">{s.amount > 0 ? s.method : "—"}</td>
+                  <td className="num text-right">{s.amount > 0 ? naira(s.amount) : "—"}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={3}>Total</td>
+                <td colSpan={hasItems ? 4 : 3}>Total money</td>
                 <td className="num text-right">{naira(total)}</td>
               </tr>
             </tfoot>
@@ -103,17 +139,19 @@ export default function ExternalSupportList({
                 <Field label="Supporter's name">
                   <input value={name} onChange={(e) => setName(e.target.value)} className="input" required />
                 </Field>
-                <Field label="Amount (₦)">
+                <Field label="Date received">
+                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input" />
+                </Field>
+                <Field label="Amount (₦)" hint="Leave blank if they only gave items.">
                   <input
                     type="number"
-                    min={1}
+                    min={0}
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     className="input"
-                    required
                   />
                 </Field>
-                <Field label="Method">
+                <Field label="Method" hint="Only used when money was given.">
                   <select
                     value={method}
                     onChange={(e) => setMethod(e.target.value as PaymentMethod)}
@@ -123,16 +161,51 @@ export default function ExternalSupportList({
                     <option value="transfer">Transfer</option>
                   </select>
                 </Field>
-                <Field label="Date received">
-                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input" />
-                </Field>
               </div>
+
+              <div>
+                <span className="label">Items given (optional)</span>
+                {items.length > 0 && (
+                  <ul className="mb-2 divide-y divide-line/70 rounded-lg border border-line bg-white text-sm">
+                    {items.map((item) => (
+                      <li key={item.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <span>{describeItem(item)}</span>
+                        <button
+                          type="button"
+                          onClick={() => setItems((prev) => prev.filter((i) => i.id !== item.id))}
+                          className="btn-ghost-danger"
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <ItemEntry
+                  withUnit
+                  buttonLabel="Add to list"
+                  onAdd={(itemName, quantity, unit) =>
+                    setItems((prev) => [...prev, { id: newItemId(), name: itemName, quantity, unit }])
+                  }
+                />
+                <span className="hint block">
+                  e.g. Rice · 0.5 · bag, Maggi · 3 · packs, Onions · 1 · basket, Clothes · 1 · bag.
+                </span>
+              </div>
+
               {error && <Notice tone="error">{error}</Notice>}
               <div className="flex gap-2">
                 <button type="submit" disabled={saving} className="btn-primary btn-sm">
                   {saving ? "Saving…" : "Add support"}
                 </button>
-                <button type="button" onClick={() => setShowForm(false)} className="btn-secondary btn-sm">
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetForm();
+                    setShowForm(false);
+                  }}
+                  className="btn-secondary btn-sm"
+                >
                   Cancel
                 </button>
               </div>

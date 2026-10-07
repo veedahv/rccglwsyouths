@@ -13,6 +13,7 @@ import {
   updateEventAfterEventReport,
 } from "@/lib/events";
 import { listExcos } from "@/lib/excos";
+import { listEventDocuments } from "@/lib/eventDocuments";
 import { listYouths } from "@/lib/youths";
 import { getContribution, getPledges, listExternalSupport, computeStats, ContributionStats } from "@/lib/contributions";
 import { contributionPeriod, contributionTiming } from "@/lib/contributionStatus";
@@ -25,9 +26,19 @@ import TaskAssignment from "@/components/TaskAssignment";
 import EditableSection from "@/components/EditableSection";
 import BudgetEditor from "@/components/BudgetEditor";
 import StartEventContribution from "@/components/StartEventContribution";
+import EventDocuments from "@/components/EventDocuments";
 import { Page, PageHeader, Card, Badge, Field, Loading, Notice } from "@/components/ui";
 import { ContributionBar, ContributionStatusBadge } from "@/components/ContributionProgress";
-import type { ChurchEvent, ExcoMember, Youth, AgendaItem, EventTask, BudgetItem, Contribution } from "@/types";
+import type {
+  ChurchEvent,
+  ExcoMember,
+  Youth,
+  AgendaItem,
+  EventTask,
+  BudgetItem,
+  Contribution,
+  EventDocument,
+} from "@/types";
 
 function EventDetailInner({ id }: { id: string }) {
   const { user, hasPermission } = useAuth();
@@ -36,6 +47,7 @@ function EventDetailInner({ id }: { id: string }) {
   // the youth roster; tasks can go to either (see TaskAssignment).
   const [excos, setExcos] = useState<ExcoMember[]>([]);
   const [youths, setYouths] = useState<Youth[]>([]);
+  const [documents, setDocuments] = useState<EventDocument[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [editingDetails, setEditingDetails] = useState(false);
@@ -63,14 +75,16 @@ function EventDetailInner({ id }: { id: string }) {
 
   async function load() {
     setLoading(true);
-    const [eventData, excoData, youthData] = await Promise.all([
+    const [eventData, excoData, youthData, documentData] = await Promise.all([
       getEvent(id),
       listExcos({ activeOnly: true }),
       listYouths({ activeOnly: true }),
+      listEventDocuments(id),
     ]);
     setEvent(eventData);
     setExcos(excoData);
     setYouths(youthData);
+    setDocuments(documentData);
     if (eventData?.contributionId) await loadContribution(eventData.contributionId);
     setLoading(false);
   }
@@ -234,6 +248,19 @@ function EventDetailInner({ id }: { id: string }) {
           />
         </Card>
 
+        <Card
+          title="Proposal and sponsorship requests"
+          description="Signed documents you can download as a PDF and send. A proposal has no budget; a sponsorship request does."
+        >
+          <EventDocuments
+            event={event}
+            documents={documents}
+            excos={excos}
+            createdBy={user?.uid ?? ""}
+            canEdit={canEditEvent}
+          />
+        </Card>
+
         <Card title="Contribution">
           {contribution ? (
             <div>
@@ -257,6 +284,19 @@ function EventDetailInner({ id }: { id: string }) {
                       received of {naira(contributionStats.totalPledged)} pledged
                     </span>
                   </p>
+                  {contributionStats.externalItemTotals.length > 0 && (
+                    <p className="mt-1 text-sm text-muted">
+                      Items from outside supporters:{" "}
+                      <span className="font-semibold text-ink">
+                        {contributionStats.externalItemTotals
+                          .map((t) => {
+                            const qty = Number.isInteger(t.received) ? t.received : t.received.toFixed(1);
+                            return t.unit ? `${qty} ${t.unit} of ${t.name}` : `${qty} × ${t.name}`;
+                          })
+                          .join(", ")}
+                      </span>
+                    </p>
+                  )}
                   {contributionStats.itemTotals.length > 0 && (
                     <p className="mt-1 text-sm text-muted">
                       Items:{" "}

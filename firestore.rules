@@ -165,6 +165,14 @@ service cloud.firestore {
         allow read: if isExco();
         allow write: if hasPermission('canEditEvents');
       }
+
+      // Proposals and sponsorship requests for the event. Any exco can read
+      // them (and download the PDF); writing, signing and deleting need
+      // canEditEvents, same as the event itself.
+      match /documents/{documentId} {
+        allow read: if isExco();
+        allow write: if hasPermission('canEditEvents');
+      }
     }
 
     // Yearly planner. Any exco can SUGGEST a programme and edit or remove

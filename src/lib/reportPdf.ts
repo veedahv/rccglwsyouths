@@ -13,25 +13,27 @@ import youthLogo from "@/assets/logo.png";
  * Styled with the RCCG palette, with both crests in the header.
  * ------------------------------------------------------------------------ */
 
-type RGB = [number, number, number];
+export type RGB = [number, number, number];
 
-const NAVY: RGB = [24, 12, 98]; // #180C62
-const GREEN: RGB = [2, 138, 44]; // #028A2C
-const RED: RGB = [214, 24, 18]; // #D61812
-const WHITE: RGB = [255, 255, 255];
-const INK: RGB = [27, 20, 64];
-const MUTED: RGB = [107, 102, 136];
-const RULE: RGB = [228, 225, 240];
-const TINT: RGB = [244, 242, 251]; // pale navy, for group rows
-const TINT_STRONG: RGB = [232, 229, 246]; // totals rows
+export const NAVY: RGB = [24, 12, 98]; // #180C62
+export const GREEN: RGB = [2, 138, 44]; // #028A2C
+export const RED: RGB = [214, 24, 18]; // #D61812
+export const WHITE: RGB = [255, 255, 255];
+export const INK: RGB = [27, 20, 64];
+export const MUTED: RGB = [107, 102, 136];
+export const RULE: RGB = [228, 225, 240];
+export const TINT: RGB = [244, 242, 251]; // pale navy, for group rows
+export const TINT_STRONG: RGB = [232, 229, 246]; // totals rows
 
-const PAGE_W = 210;
-const PAGE_H = 297;
-const MARGIN = 14;
-const CONTENT_W = PAGE_W - MARGIN * 2;
-const BOTTOM = PAGE_H - 17; // leave room for the footer
+export const PAGE_W = 210;
+export const PAGE_H = 297;
+export const MARGIN = 14;
+export const CONTENT_W = PAGE_W - MARGIN * 2;
+export const BOTTOM = PAGE_H - 17; // leave room for the footer
 const PT_TO_MM = 0.3528; // jsPDF font sizes are in points; coordinates/widths are mm
 
+// The page chrome, table and colour helpers below are exported so other
+// documents (lib/eventDocumentPdf.ts) can share the same letterhead.
 export const DEFAULT_ORG_NAME = "Youth Department, LWS, RCCG";
 
 export interface PdfOptions {
@@ -66,7 +68,7 @@ function previousMonthLabel(yearMonth: string): string {
   return new Date(y, m - 2, 1).toLocaleString("en-US", { month: "short", year: "numeric" });
 }
 
-function longDate(iso: string): string {
+export function longDate(iso: string): string {
   return parseISODate(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
@@ -177,7 +179,7 @@ function drawAmount(doc: jsPDF, amount: number, rightX: number, y: number, color
 
 /* ------------------------------ page chrome ----------------------------- */
 
-interface Ctx {
+export interface Ctx {
   doc: jsPDF;
   y: number;
   logos: ReportLogos;
@@ -203,7 +205,7 @@ function drawBrandRule(doc: jsPDF, y: number) {
 }
 
 /** Full header: both crests, organisation name and the report title. Used at the top of each report. */
-function drawFullHeader(ctx: Ctx, title: string) {
+export function drawFullHeader(ctx: Ctx, title: string) {
   const { doc, logos } = ctx;
   const logoH = 16;
   const top = 10;
@@ -249,7 +251,7 @@ function drawContinuationHeader(ctx: Ctx) {
 }
 
 /** Starts a new page if `height` won't fit. Returns true when it did, so tables can repeat their header. */
-function ensureSpace(ctx: Ctx, height: number): boolean {
+export function ensureSpace(ctx: Ctx, height: number): boolean {
   if (ctx.y + height <= BOTTOM) return false;
   ctx.doc.addPage();
   drawContinuationHeader(ctx);
@@ -261,7 +263,7 @@ function startPage(ctx: Ctx, title: string, isFirst: boolean) {
   drawFullHeader(ctx, title);
 }
 
-function drawFooters(doc: jsPDF, orgName: string) {
+export function drawFooters(doc: jsPDF, orgName: string) {
   const total = doc.getNumberOfPages();
   const generated = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   for (let i = 1; i <= total; i++) {
@@ -277,7 +279,7 @@ function drawFooters(doc: jsPDF, orgName: string) {
   }
 }
 
-function drawSectionTitle(ctx: Ctx, text: string, color: RGB, keepTogether = 24) {
+export function drawSectionTitle(ctx: Ctx, text: string, color: RGB, keepTogether = 24) {
   ensureSpace(ctx, keepTogether); // move the heading to the next page if its table can't start here
   const { doc } = ctx;
   doc.setFillColor(...color);
@@ -291,14 +293,14 @@ function drawSectionTitle(ctx: Ctx, text: string, color: RGB, keepTogether = 24)
 
 /* -------------------------------- tables -------------------------------- */
 
-interface Col {
+export interface Col {
   header: string;
   x: number;
   w: number;
   align?: "left" | "right";
 }
 
-interface Cell {
+export interface Cell {
   text?: string;
   amount?: number;
   indent?: number;
@@ -307,7 +309,7 @@ interface Cell {
   amountColor?: RGB;
 }
 
-interface RowStyle {
+export interface RowStyle {
   fill?: RGB;
   bold?: boolean;
   textColor?: RGB;
@@ -318,9 +320,9 @@ interface RowStyle {
   keepWithNext?: boolean;
 }
 
-const LINE_H = 4.1;
+export const LINE_H = 4.1;
 
-function drawTableHeader(ctx: Ctx, cols: Col[]) {
+export function drawTableHeader(ctx: Ctx, cols: Col[]) {
   const { doc } = ctx;
   const h = 7;
   doc.setFillColor(...NAVY);
@@ -338,7 +340,7 @@ function drawTableHeader(ctx: Ctx, cols: Col[]) {
   ctx.y += h;
 }
 
-function drawRow(ctx: Ctx, cols: Col[], cells: Cell[], style: RowStyle = {}) {
+export function drawRow(ctx: Ctx, cols: Col[], cells: Cell[], style: RowStyle = {}) {
   const { doc } = ctx;
   const fontSize = style.fontSize ?? 9;
 

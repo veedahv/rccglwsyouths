@@ -233,6 +233,35 @@ function ContributionDetailInner({ id }: { id: string }) {
           </Card>
         )}
 
+        {stats.externalItemTotals.length > 0 && (
+          <Card
+            title="Items from external supporters"
+            description="Everything given as items by people outside the youth roster, added up per item."
+          >
+            <div className="overflow-x-auto rounded-lg border border-line">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Item</th>
+                    <th className="text-right">Received</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stats.externalItemTotals.map((t) => (
+                    <tr key={`${t.name}|${t.unit ?? ""}`}>
+                      <td className="font-medium">{t.name}</td>
+                      <td className="num text-right">
+                        {Number.isInteger(t.received) ? t.received : t.received.toFixed(1)}
+                        {t.unit ? ` ${t.unit}` : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
         <Card
           title="Details"
           action={

@@ -159,17 +159,31 @@ export interface Pledge {
   items?: PledgedItem[]; // pledges made before items existed have none
 }
 
+// An item given by someone outside the youth roster — e.g. 3 packs of
+// Maggi, half a bag of rice. `quantity` can be a half (0.5) so "half a
+// bag" / "half a pack" can be recorded; `unit` is free text ("bags",
+// "packs", "baskets") and optional, since some things just count ("5 pads").
+export interface ExternalSupportItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unit?: string;
+}
+
 // /contributions/{contributionId}/externalSupport/{supportId} — money
-// given toward a contribution drive by someone who isn't on the youth
-// roster (e.g. a parent or a pastor supporting the youths). Counts
-// toward the drive's total received, but never toward total pledged —
-// there's no pledge concept for external supporters, only direct giving.
+// and/or items given toward a contribution drive by someone who isn't on
+// the youth roster (e.g. a parent or a pastor supporting the youths).
+// Counts toward the drive's total received, but never toward total
+// pledged — there's no pledge concept for external supporters, only
+// direct giving. Money-only support has no `items`; items-only support has
+// an `amount` of 0 (and its `method` is then just a default, unused).
 export interface ExternalSupport {
   id: string;
   name: string; // free text — not a youth or exco
-  amount: number;
+  amount: number; // 0 when only items were given
   method: PaymentMethod;
   date: string;
+  items?: ExternalSupportItem[]; // older records predate items and have none
   recordedBy: string; // uid of the exco who recorded it
 }
 
@@ -327,4 +341,84 @@ export interface ActivityLogEntry {
   targetType: string; // e.g. "transaction", "meeting"
   targetId: string;
   timestamp: string;
+}
+
+/* -------------------------------------------------------------------------
+ * Event documents — /events/{eventId}/documents/{documentId}
+ *
+ * Two kinds, both printable as a PDF that ends with signatures:
+ *   proposal     — the case for the event: background, objectives, audience,
+ *                  programme, expected outcomes. Deliberately has NO budget.
+ *   sponsorship  — a letter to a sponsor: the event in detail, the budget,
+ *                  and exactly what is being asked for (cash and/or items).
+ * ---------------------------------------------------------------------- */
+
+export type EventDocumentKind = "proposal" | "sponsorship";
+
+// "draft" while it's being written; "signed" once it's been finalised, at
+// which point a sponsorship request freezes the budget it was sent with.
+export type EventDocumentStatus = "draft" | "signed";
+
+// A titled block of text. Both kinds are built from these so every part is
+// editable, reorderable and removable. Lines starting with "- " print as bullets.
+export interface DocumentSection {
+  id: string;
+  heading: string;
+  body: string;
+}
+
+// One thing asked of a sponsor. `quantity` is free text on purpose: the
+// asks are phrased the way people say them ("A big or half bag of rice",
+// "3 packs", "A basket").
+export interface RequestedItem {
+  id: string;
+  name: string;
+  quantity: string;
+  notes?: string;
+}
+
+export interface DocumentSignatory {
+  id: string;
+  name: string;
+  title: string; // e.g. "President", "Youth Pastor"
+  // A drawn signature, stored as a small PNG data URL (a few KB). Absent
+  // until they've signed; the PDF then leaves a blank line to sign by hand.
+  signatureDataUrl?: string;
+  signedOn?: string; // ISO date
+}
+
+export interface DocumentContact {
+  id: string;
+  name: string;
+  role?: string;
+  phone?: string;
+}
+
+export interface EventDocument {
+  id: string;
+  kind: EventDocumentKind;
+  title: string; // e.g. "Proposal for Orphanage Visit"
+  status: EventDocumentStatus;
+  ref?: string; // optional reference number printed on the letter
+  documentDate: string; // ISO date printed on it
+  venue?: string;
+  time?: string; // free text, e.g. "10:00 AM"
+  expectedAttendance?: string; // free text, e.g. "About 60 youths and 40 children"
+  sections: DocumentSection[];
+  signatories: DocumentSignatory[];
+  // Proposal only — who it's submitted to (e.g. "The Pastor-in-Charge").
+  submittedTo?: string;
+  // Sponsorship only below.
+  recipientName?: string;
+  recipientOrganisation?: string;
+  recipientAddress?: string;
+  cashRequested?: number | null; // ₦ asked for in cash; null/absent = none
+  itemsRequested?: RequestedItem[];
+  includeBudget?: boolean; // show the event's budget breakdown (default true)
+  budgetSnapshot?: BudgetItem[]; // frozen copy taken when signed
+  paymentDetails?: string; // where cash should be paid
+  contacts?: DocumentContact[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 }
