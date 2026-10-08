@@ -297,8 +297,8 @@ function EventDetailInner({ id }: { id: string }) {
         </Card>
 
         <Card
-          title="Proposal and sponsorship requests"
-          description="Signed documents you can download as a PDF and send. A proposal has no budget; a sponsorship request does."
+          title="Proposal and letters"
+          description="Signed documents you can download as a PDF and send: a proposal (no budget), sponsorship requests (with the budget and what is needed), and a letter asking the place you are visiting to accept."
         >
           <EventDocuments
             event={event}

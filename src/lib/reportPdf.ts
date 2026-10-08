@@ -189,7 +189,7 @@ export interface Ctx {
 }
 
 /** Thin three-colour strip: the RCCG blue, green and red. */
-function drawBrandRule(doc: jsPDF, y: number) {
+export function drawBrandRule(doc: jsPDF, y: number) {
   const parts: [RGB, number][] = [
     [NAVY, 0.6],
     [GREEN, 0.25],

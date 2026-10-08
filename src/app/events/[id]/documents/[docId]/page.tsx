@@ -14,12 +14,13 @@ import {
   getEventDocument,
   saveEventDocument,
 } from "@/lib/eventDocuments";
-import { downloadEventDocumentPdf } from "@/lib/eventDocumentPdf";
+import { createEventDocumentPdfBytes, downloadEventDocumentPdf } from "@/lib/eventDocumentPdf";
 import { fallbackRoleLabel } from "@/lib/roles";
 import { formatDate, formatDateTime, naira } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
-import { ConfirmDialog } from "@/components/Modal";
+import Modal, { ConfirmDialog } from "@/components/Modal";
+import PdfPreview from "@/components/PdfPreview";
 import {
   ContactsEditor,
   RequestedItemsPicker,
@@ -48,6 +49,8 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [preview, setPreview] = useState<ArrayBuffer | null>(null);
+  const [previewing, setPreviewing] = useState(false);
   const [confirm, setConfirm] = useState<"reopen" | "delete" | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
@@ -100,6 +103,8 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
   }
 
   const isSponsorship = draft.kind === "sponsorship";
+  const isVisit = draft.kind === "visit";
+  const isLetter = isSponsorship || isVisit; // addressed to someone
   const signed = draft.status === "signed";
   const canEdit = canEditEvents && !signed;
   const budget = documentBudget(draft, event);
@@ -177,6 +182,19 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
     }
   }
 
+  // Builds the PDF from what's on screen right now (saved or not) and shows it in a dialog.
+  async function handlePreview() {
+    if (!draft || !event) return;
+    setPreviewing(true);
+    try {
+      setPreview(await createEventDocumentPdfBytes(draft, event, { ownerNames }));
+    } catch {
+      setMessage({ tone: "error", text: "Couldn't build the preview. Try again." });
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
   async function handleDownload() {
     if (!draft || !event) return;
     setDownloading(true);
@@ -213,6 +231,9 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
             <Badge tone={signed ? "green" : "amber"} dot>
               {signed ? "Signed" : "Draft"}
             </Badge>
+            <button onClick={handlePreview} disabled={previewing} className="btn-secondary btn-sm">
+              {previewing ? "Preparing…" : "Preview"}
+            </button>
             <button onClick={handleDownload} disabled={downloading} className="btn-secondary btn-sm">
               {downloading ? "Preparing…" : "Download PDF"}
             </button>
@@ -263,7 +284,7 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
                 className="input"
               />
             </Field>
-            {!isSponsorship && (
+            {draft.kind === "proposal" && (
               <Field label="Submitted to" className="sm:col-span-2">
                 <input
                   value={draft.submittedTo ?? ""}
@@ -286,19 +307,22 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
           </p>
         </Card>
 
-        {isSponsorship && (
-          <Card title="Addressed to">
+        {isLetter && (
+          <Card
+            title="Addressed to"
+            description={isVisit ? "The place you are asking to visit. The venue from the event is filled in for you." : undefined}
+          >
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Name or title">
                 <input
                   value={draft.recipientName ?? ""}
                   onChange={(e) => set({ recipientName: e.target.value })}
                   disabled={!canEdit}
-                  placeholder="e.g. The Managing Director"
+                  placeholder={isVisit ? "e.g. The Director" : "e.g. The Managing Director"}
                   className="input"
                 />
               </Field>
-              <Field label="Company or organisation">
+              <Field label={isVisit ? "Home or organisation" : "Company or organisation"}>
                 <input
                   value={draft.recipientOrganisation ?? ""}
                   onChange={(e) => set({ recipientOrganisation: e.target.value })}
@@ -324,7 +348,9 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
           description={
             isSponsorship
               ? "The letter itself. The budget and the list of what you need are added automatically before the last section."
-              : "Every section can be renamed, moved or removed. The event’s agenda is printed after the programme section automatically."
+              : isVisit
+                ? "The letter itself. Your contact people are added before the last section, and a reply slip follows the signatures."
+                : "Every section can be renamed, moved or removed. The event’s agenda is printed after the programme section automatically."
           }
         >
           <SectionsEditor
@@ -334,7 +360,7 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
           />
         </Card>
 
-        {!isSponsorship && (
+        {draft.kind === "proposal" && (
           <Notice tone="info">
             A proposal doesn’t list a budget. Use a sponsorship request when you need to show costs and ask for support.
             {event.agenda.length > 0
@@ -474,6 +500,37 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
           </>
         )}
 
+        {isVisit && (
+          <Card title="Contact and reply" description="So they know who to call or reply to.">
+            <div className="space-y-5">
+              <div>
+                <span className="label">Who to contact</span>
+                <ContactsEditor
+                  contacts={draft.contacts ?? []}
+                  canEdit={canEdit}
+                  onChange={(contacts) => set({ contacts })}
+                />
+              </div>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={draft.includeReplySlip !== false}
+                  onChange={(e) => set({ includeReplySlip: e.target.checked })}
+                  disabled={!canEdit}
+                />
+                <span>
+                  Add a reply slip after the signatures
+                  <span className="hint block">
+                    They tick whether the date suits them (or suggest another), add any rules or items needed,
+                    and sign and stamp it, so you can get a clear answer back.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </Card>
+        )}
+
         <Card title="Signatures" description="Printed at the end of the document, each with their name and title.">
           <SignatoriesEditor
             signatories={draft.signatories}
@@ -537,6 +594,30 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
           </div>
         </div>
       )}
+      {preview && (
+        <Modal
+          open
+          size="xl"
+          title={`Preview: ${draft.title || DOCUMENT_KIND_LABEL[draft.kind]}`}
+          onClose={() => setPreview(null)}
+          footer={
+            <>
+              <span className="mr-auto self-center text-xs text-muted">
+                {dirty ? "Shows your changes, including ones not saved yet." : "Shows the document as saved."}
+              </span>
+              <button onClick={handleDownload} disabled={downloading} className="btn-secondary btn-sm">
+                {downloading ? "Preparing…" : "Download PDF"}
+              </button>
+              <button onClick={() => setPreview(null)} className="btn-primary btn-sm">
+                Close
+              </button>
+            </>
+          }
+        >
+          <PdfPreview data={preview} />
+        </Modal>
+      )}
+
       {confirm && (
         <ConfirmDialog
           open

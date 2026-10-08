@@ -31,6 +31,7 @@ import type {
 export const DOCUMENT_KIND_LABEL: Record<EventDocumentKind, string> = {
   proposal: "Proposal",
   sponsorship: "Sponsorship request",
+  visit: "Visit request",
 };
 
 export function newId(): string {
@@ -123,6 +124,32 @@ export function sponsorshipSections(): DocumentSection[] {
   ];
 }
 
+/** The sections a visit-request letter starts with: asking a home or organisation whether we may visit. */
+export function visitSections(): DocumentSection[] {
+  return [
+    section(
+      "About us",
+      "We are the Youth Department of the Redeemed Christian Church of God, Living Water Sanctuary. We are a body of young people committed to serving God and making a positive difference in our community."
+    ),
+    section(
+      "Purpose of our visit",
+      "As part of our outreach, we would like to visit the children in your care, spend time with them, and share gifts and essential items with the home. Our aim is to show them love, care and encouragement."
+    ),
+    section(
+      "What the visit will involve",
+      "- Meeting and spending time with the children\n- Games, songs and conversation\n- Presenting food items, clothing and other supplies\n- A short time of prayer and encouragement, only if you are comfortable with it"
+    ),
+    section(
+      "Our request",
+      "We kindly request your permission to visit on the date and at the time stated above. Please let us know whether this is convenient, or suggest another date and time that suits you better. We would also appreciate your guidance on:\n- Any rules or guidelines we should observe during the visit\n- The items the children need most, and their sizes where relevant\n- Whether photographs may be taken, which we will do only with your permission"
+    ),
+    section(
+      "Conclusion",
+      "We would be grateful for your reply at your earliest convenience. You may use the reply slip at the end of this letter, or contact us on the numbers provided. Thank you for the work you do and for considering our request."
+    ),
+  ];
+}
+
 /** Titles of the people who usually sign: the roles worth pre-filling from the exco list. */
 const SIGNING_ROLES = ["president", "secretary"];
 
@@ -163,6 +190,17 @@ export function newDocumentData(params: {
   if (kind === "proposal") {
     return { ...base, title: `Proposal for ${event.title}`, sections: proposalSections() };
   }
+  if (kind === "visit") {
+    return {
+      ...base,
+      title: `Request for a visit: ${event.title}`,
+      sections: visitSections(),
+      recipientName: recipientName?.trim() || undefined,
+      recipientOrganisation: event.venue?.trim() || undefined, // the place being visited
+      includeReplySlip: true,
+      contacts: [],
+    };
+  }
   return {
     ...base,
     title: `Request for sponsorship: ${event.title}`,
@@ -202,6 +240,9 @@ export function documentProblems(document: EventDocument, event: ChurchEvent): s
   if (!document.title.trim()) problems.push("Give it a title.");
   if (document.sections.every((s) => !s.body.trim())) problems.push("Write at least one section.");
   if (document.signatories.every((s) => !s.name.trim())) problems.push("Add who is signing.");
+  if (document.kind === "visit" && !document.recipientName?.trim() && !document.recipientOrganisation?.trim()) {
+    problems.push("Say who the letter is addressed to.");
+  }
   if (document.kind === "sponsorship") {
     if (!document.recipientName?.trim()) problems.push("Say who the request is addressed to.");
     const hasCash = (document.cashRequested ?? 0) > 0;

@@ -9,11 +9,12 @@ import {
   MARGIN,
   MUTED,
   NAVY,
+  RED,
   RULE,
   TINT_STRONG,
   ReportLogos,
+  drawBrandRule,
   drawFooters,
-  drawFullHeader,
   drawRow,
   drawSectionTitle,
   drawTableHeader,
@@ -325,6 +326,123 @@ export function salutationFor(recipientName?: string): string {
   return titled.test(name) ? name : "Sir/Ma";
 }
 
+/* ------------------------------- letterhead ----------------------------- */
+
+/**
+ * The first-page heading of these documents: both crests, then three lines
+ * — Redeemed Christian Church of God (green), Living Water Sanctuary (red),
+ * Youth Department. Later pages keep the slim "Youth Department, LWS, RCCG"
+ * header from reportPdf, so only this page differs from the reports.
+ */
+function drawLetterhead(ctx: Ctx, kindLabel: string) {
+  const { doc, logos } = ctx;
+  const logoH = 19;
+  const top = 10;
+  let x = MARGIN;
+
+  if (logos.church) {
+    doc.addImage(logos.church.dataUrl, "PNG", x, top, logoH * logos.church.ratio, logoH);
+    x += logoH * logos.church.ratio + 3;
+  }
+  if (logos.youth) {
+    doc.addImage(logos.youth.dataUrl, "PNG", x, top, logoH * logos.youth.ratio, logoH);
+    x += logoH * logos.youth.ratio + 3;
+  }
+  if (logos.church || logos.youth) x += 3;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(...GREEN);
+  doc.text("REDEEMED CHRISTIAN CHURCH OF GOD", x, top + 5.6);
+  doc.setTextColor(...RED);
+  doc.text("LIVING WATER SANCTUARY", x, top + 11.9);
+  doc.setFontSize(11);
+  doc.setTextColor(...NAVY);
+  doc.text("YOUTH DEPARTMENT", x, top + 17.6);
+
+  drawBrandRule(doc, top + logoH + 3);
+  ctx.runningTitle = kindLabel; // the slim header on later pages says "<kind> (continued)"
+  ctx.y = top + logoH + 11;
+}
+
+/* ------------------------------- reply slip ----------------------------- */
+
+function drawBox(doc: jsPDF, x: number, y: number) {
+  doc.setDrawColor(...NAVY);
+  doc.setLineWidth(0.35);
+  doc.rect(x, y - 3.4, 4, 4);
+}
+
+function drawFillLine(doc: jsPDF, label: string, x: number, y: number, width: number) {
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.5);
+  doc.setTextColor(...INK);
+  doc.text(label, x, y);
+  const start = x + doc.getTextWidth(label) + 2;
+  doc.setDrawColor(...MUTED);
+  doc.setLineWidth(0.2);
+  doc.line(start, y + 0.8, x + width, y + 0.8);
+}
+
+/**
+ * A slip for the place being visited to tick, fill in and send back (or
+ * just photograph and reply with): accept the date, or suggest another.
+ */
+function drawReplySlip(ctx: Ctx, event: ChurchEvent) {
+  const { doc } = ctx;
+  const height = 84;
+  ensureSpace(ctx, height + 6);
+  ctx.y += 6;
+  const top = ctx.y;
+  const left = MARGIN;
+
+  doc.setDrawColor(...MUTED);
+  doc.setLineWidth(0.25);
+  doc.setLineDashPattern([1.5, 1.5], 0);
+  doc.line(left, top, left + CONTENT_W, top);
+  doc.setLineDashPattern([], 0);
+
+  let y = top + 8;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(...NAVY);
+  doc.text("REPLY SLIP", left, y);
+  y += 6;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.5);
+  doc.setTextColor(...MUTED);
+  const when = [longDate(event.date), event.time ? formatTime(event.time) : ""].filter(Boolean).join(", ");
+  doc.text(pdfSafe(`To: Youth Department, LWS, RCCG   |   Proposed visit: ${when}`), left, y);
+  y += 8;
+
+  doc.setTextColor(...INK);
+  drawBox(doc, left, y);
+  doc.text("We are happy to receive you on the proposed date and time.", left + 7, y);
+  y += 8;
+  drawBox(doc, left, y);
+  doc.text("That date and time is not suitable. A better date and time for us is:", left + 7, y);
+  doc.setDrawColor(...MUTED);
+  doc.setLineWidth(0.2);
+  doc.line(left + 7 + doc.getTextWidth("That date and time is not suitable. A better date and time for us is:") + 2, y + 0.8, left + CONTENT_W, y + 0.8);
+  y += 9;
+
+  drawFillLine(doc, "Items the children need most, or rules to observe:", left, y, CONTENT_W);
+  y += 7;
+  doc.setDrawColor(...MUTED);
+  doc.line(left, y + 0.8, left + CONTENT_W, y + 0.8);
+  y += 9;
+
+  drawFillLine(doc, "Name:", left, y, 88);
+  drawFillLine(doc, "Position:", left + 96, y, CONTENT_W - 96);
+  y += 9;
+  drawFillLine(doc, "Signature and stamp:", left, y, 88);
+  drawFillLine(doc, "Date:", left + 96, y, CONTENT_W - 96);
+  y += 4;
+
+  ctx.y = Math.max(y, top + height);
+}
+
 /* --------------------------------- build -------------------------------- */
 
 /** Where the event-specific tables go: after the section that matches, else just before the closing section. */
@@ -344,8 +462,10 @@ export function buildEventDocumentPdf(
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const ctx: Ctx = { doc, y: 0, logos, orgName, runningTitle: "" };
   const isSponsorship = document.kind === "sponsorship";
+  const isVisit = document.kind === "visit";
+  const isLetter = isSponsorship || isVisit; // addressed to someone, opens "Dear …", ends "Yours faithfully,"
 
-  drawFullHeader(ctx, DOCUMENT_KIND_LABEL[document.kind]);
+  drawLetterhead(ctx, DOCUMENT_KIND_LABEL[document.kind]);
 
   // Reference and date, right-aligned like a letter.
   doc.setFont("helvetica", "normal");
@@ -357,7 +477,7 @@ export function buildEventDocumentPdf(
 
   // Who it's for.
   doc.setTextColor(...INK);
-  if (isSponsorship) {
+  if (isLetter) {
     const lines = [document.recipientName, document.recipientOrganisation, ...(document.recipientAddress ?? "").split("\n")]
       .map((l) => pdfSafe(l ?? "").trim())
       .filter(Boolean);
@@ -395,21 +515,30 @@ export function buildEventDocumentPdf(
   ctx.y += 7;
 
   // Event at a glance.
-  drawFacts(ctx, [
-    ["Event", event.title],
+  // A visit letter is addressed to the place being visited, so it doesn't
+  // repeat the event's name or the venue back to them.
+  const facts: [string, string | undefined][] = [
+    ...(isVisit ? [] : ([["Event", event.title]] as [string, string | undefined][])),
     ["Theme", event.theme],
     ["Date and time", event.time ? `${longDate(event.date)}  |  ${formatTime(event.time)}` : longDate(event.date)],
-    ["Venue", event.venue],
+    ...(isVisit ? [] : ([["Venue", event.venue]] as [string, string | undefined][])),
     ["Expected attendance", event.expectedAttendance],
-  ]);
+  ];
+  drawFacts(ctx, facts);
 
   const sections = document.sections;
-  const tablesAt = insertionIndex(sections, isSponsorship ? /support|need|why/i : /programme|activit|agenda/i);
+  // Where the budget/agenda/contact blocks go: after the section that matches, else just before the closing one.
+  const tablesAt = insertionIndex(
+    sections,
+    isSponsorship ? /support|need|why/i : isVisit ? /^\b$/ : /programme|activit|agenda/i
+  );
 
   const drawTables = () => {
     if (isSponsorship) {
       if (document.includeBudget !== false) drawBudget(ctx, document, event);
       drawRequest(ctx, document, event);
+      drawContacts(ctx, document);
+    } else if (isVisit) {
       drawContacts(ctx, document);
     } else {
       drawAgenda(ctx, event, options.ownerNames ?? {});
@@ -422,7 +551,8 @@ export function buildEventDocumentPdf(
   });
   if (tablesAt >= sections.length) drawTables();
 
-  drawSignatures(ctx, document.signatories, isSponsorship ? "Yours faithfully," : "Respectfully submitted by:");
+  drawSignatures(ctx, document.signatories, isLetter ? "Yours faithfully," : "Respectfully submitted by:");
+  if (isVisit && document.includeReplySlip !== false) drawReplySlip(ctx, event);
 
   drawFooters(doc, orgName);
   return doc;
@@ -434,6 +564,16 @@ function slug(text: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 50);
+}
+
+/** The finished PDF as bytes, for the in-app preview (nothing is downloaded). */
+export async function createEventDocumentPdfBytes(
+  document: EventDocument,
+  event: ChurchEvent,
+  options: EventDocumentPdfOptions = {}
+): Promise<ArrayBuffer> {
+  const pdf = buildEventDocumentPdf(document, event, await loadReportLogos(), options);
+  return pdf.output("arraybuffer");
 }
 
 export async function downloadEventDocumentPdf(

@@ -25,7 +25,7 @@ interface Props {
 /** The event page's "Documents" card: the proposal and any sponsorship requests, plus buttons to start new ones. */
 export default function EventDocuments({ event, documents, excos, createdBy, canEdit }: Props) {
   const router = useRouter();
-  const [askingRecipient, setAskingRecipient] = useState(false);
+  const [askingFor, setAskingFor] = useState<"sponsorship" | "visit" | null>(null);
   const [recipient, setRecipient] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,8 +57,8 @@ export default function EventDocuments({ event, documents, excos, createdBy, can
     <div>
       {documents.length === 0 ? (
         <EmptyState
-          title="No proposal or sponsorship request yet"
-          description="A proposal makes the case for the event. A sponsorship request asks for support: it includes the budget and exactly what is needed."
+          title="No proposal or letters yet"
+          description="A proposal makes the case for the event. A sponsorship request asks for support and includes the budget and what is needed. A visit letter asks the place you are visiting whether they accept."
         />
       ) : (
         <ul className="divide-y divide-line/70 rounded-lg border border-line">
@@ -66,7 +66,7 @@ export default function EventDocuments({ event, documents, excos, createdBy, can
             <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
               <div className="min-w-0">
                 <Link href={`/events/${event.id}/documents/${d.id}`} className="link">
-                  {d.kind === "sponsorship" && d.recipientName
+                  {d.kind !== "proposal" && d.recipientName
                     ? `${DOCUMENT_KIND_LABEL[d.kind]} to ${d.recipientName}`
                     : d.title}
                 </Link>
@@ -86,22 +86,25 @@ export default function EventDocuments({ event, documents, excos, createdBy, can
 
       {canEdit && (
         <div className="mt-4">
-          {askingRecipient ? (
+          {askingFor ? (
             <div className="panel space-y-3">
-              <Field label="Who is the request addressed to?" hint="A person, a company or an organisation. You can change it later.">
+              <Field
+                label={askingFor === "visit" ? "Who is the letter addressed to?" : "Who is the request addressed to?"}
+                hint="A person, a company or an organisation. You can change it later."
+              >
                 <input
                   value={recipient}
                   onChange={(e) => setRecipient(e.target.value)}
                   className="input"
-                  placeholder="e.g. The Managing Director, Sunrise Foods Ltd"
+                  placeholder={askingFor === "visit" ? "e.g. The Director" : "e.g. The Managing Director, Sunrise Foods Ltd"}
                   autoFocus
                 />
               </Field>
               <div className="flex gap-2">
-                <button onClick={() => create("sponsorship")} disabled={creating} className="btn-primary btn-sm">
-                  {creating ? "Creating…" : "Create request"}
+                <button onClick={() => create(askingFor)} disabled={creating} className="btn-primary btn-sm">
+                  {creating ? "Creating…" : askingFor === "visit" ? "Create letter" : "Create request"}
                 </button>
-                <button onClick={() => setAskingRecipient(false)} className="btn-secondary btn-sm">
+                <button onClick={() => setAskingFor(null)} className="btn-secondary btn-sm">
                   Cancel
                 </button>
               </div>
@@ -111,8 +114,11 @@ export default function EventDocuments({ event, documents, excos, createdBy, can
               <button onClick={() => create("proposal")} disabled={creating} className="btn-secondary btn-sm">
                 {hasProposal ? "New proposal" : "Write a proposal"}
               </button>
-              <button onClick={() => setAskingRecipient(true)} disabled={creating} className="btn-secondary btn-sm">
+              <button onClick={() => setAskingFor("sponsorship")} disabled={creating} className="btn-secondary btn-sm">
                 New sponsorship request
+              </button>
+              <button onClick={() => setAskingFor("visit")} disabled={creating} className="btn-secondary btn-sm">
+                Letter asking to visit
               </button>
             </div>
           )}

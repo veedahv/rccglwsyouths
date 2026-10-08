@@ -367,9 +367,12 @@ export interface ActivityLogEntry {
  *                  programme, expected outcomes. Deliberately has NO budget.
  *   sponsorship  — a letter to a sponsor: the event in detail, the budget,
  *                  and exactly what is being asked for (cash and/or items).
+ *   visit        — a letter to the place being visited (e.g. an orphanage)
+ *                  asking whether they accept the visit, with a reply slip
+ *                  they can fill in and send back.
  * ---------------------------------------------------------------------- */
 
-export type EventDocumentKind = "proposal" | "sponsorship";
+export type EventDocumentKind = "proposal" | "sponsorship" | "visit";
 
 // "draft" while it's being written; "signed" once it's been finalised, at
 // which point a sponsorship request freezes the budget it was sent with.
@@ -411,7 +414,7 @@ export interface EventDocument {
   signatories: DocumentSignatory[];
   // Proposal only — who it's submitted to (e.g. "The Pastor-in-Charge").
   submittedTo?: string;
-  // Sponsorship only below.
+  // Sponsorship and visit letters (addressed to someone) below.
   recipientName?: string;
   recipientOrganisation?: string;
   recipientAddress?: string;
@@ -421,6 +424,7 @@ export interface EventDocument {
   requestedItemIds?: string[];
   itemsSnapshot?: NeededItem[]; // frozen copy of those items, taken when signed
   includeBudget?: boolean; // show the event's budget breakdown (default true)
+  includeReplySlip?: boolean; // visit letters: print a slip for them to accept or suggest another date (default true)
   budgetSnapshot?: BudgetItem[]; // frozen copy taken when signed
   paymentDetails?: string; // where cash should be paid
   contacts?: DocumentContact[];

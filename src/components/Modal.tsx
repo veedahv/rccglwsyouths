@@ -12,6 +12,8 @@ interface ModalProps {
   busy?: boolean;
   children: ReactNode;
   footer?: ReactNode;
+  /** "md" suits a question or a small form; "xl" is a tall, wide panel for previews. */
+  size?: "md" | "xl";
 }
 
 /**
@@ -20,7 +22,7 @@ interface ModalProps {
  * into the dialog when it opens and goes back to the button that opened it
  * when it closes; Tab stays inside it.
  */
-export default function Modal({ open, title, onClose, busy = false, children, footer }: ModalProps) {
+export default function Modal({ open, title, onClose, busy = false, children, footer, size = "md" }: ModalProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -87,9 +89,11 @@ export default function Modal({ open, title, onClose, busy = false, children, fo
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-xl"
+        className={`flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl ${
+          size === "xl" ? "h-[92vh] max-w-4xl" : "max-w-md"
+        }`}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 py-4">
           <h2 id={titleId} className="text-base font-semibold text-rccg-purple-800">
             {title}
           </h2>
@@ -104,8 +108,12 @@ export default function Modal({ open, title, onClose, busy = false, children, fo
             ✕
           </button>
         </div>
-        <div className="space-y-4 px-5 py-4">{children}</div>
-        {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line bg-mist/60 px-5 py-3">{footer}</div>}
+        <div className={`min-h-0 flex-1 overflow-y-auto ${size === "xl" ? "bg-mist p-3 sm:p-5" : "space-y-4 px-5 py-4"}`}>
+          {children}
+        </div>
+        {footer && (
+          <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-line bg-mist/60 px-5 py-3">{footer}</div>
+        )}
       </div>
     </div>
   );
