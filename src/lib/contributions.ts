@@ -5,6 +5,7 @@ import {
   setDoc,
   updateDoc,
   deleteField,
+  deleteDoc,
   getDoc,
   getDocs,
   query,
@@ -219,6 +220,41 @@ export interface ItemTotal {
   name: string;
   pledged: number;
   received: number;
+}
+
+/**
+ * Changes an existing record of external support: fix the name, date or
+ * amount, or add and remove items. Replaces the stored items with the
+ * list given; an empty list removes them. `recordedBy` is left as it was.
+ */
+export async function updateExternalSupport(
+  contributionId: string,
+  supportId: string,
+  data: {
+    name: string;
+    amount: number;
+    method: PaymentMethod;
+    date: string;
+    items: { id?: string; name: string; quantity: number; unit?: string }[];
+  }
+): Promise<void> {
+  const items: ExternalSupportItem[] = data.items.map((i) => ({
+    id: i.id ?? newItemId(),
+    name: i.name.trim(),
+    quantity: i.quantity,
+    ...(i.unit?.trim() ? { unit: i.unit.trim() } : {}),
+  }));
+  await updateDoc(doc(db, `contributions/${contributionId}/externalSupport/${supportId}`), {
+    name: data.name.trim(),
+    amount: data.amount,
+    method: data.method,
+    date: data.date,
+    items: items.length > 0 ? items : deleteField(),
+  });
+}
+
+export async function deleteExternalSupport(contributionId: string, supportId: string): Promise<void> {
+  await deleteDoc(doc(db, `contributions/${contributionId}/externalSupport/${supportId}`));
 }
 
 /** One kind of item given by external supporters, e.g. all the rice, added up. */
