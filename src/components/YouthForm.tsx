@@ -48,6 +48,12 @@ export default function YouthForm({ existing, onSaved, onCancel }: Props) {
         <Field label="Name">
           <input value={name} onChange={(e) => setName(e.target.value)} className="input" required />
         </Field>
+        {existing.linkedExcoId && (
+          <p className="hint -mt-2">
+            This youth is also an exco. Name, phone, gender, birthday and unit are shared with their exco record:
+            changing them here changes them there too.
+          </p>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Phone">

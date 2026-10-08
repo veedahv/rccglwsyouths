@@ -8,7 +8,6 @@ import {
   getDoc,
   query,
   where,
-  orderBy,
 } from "firebase/firestore";
 import { initializeApp, deleteApp } from "firebase/app";
 import {
@@ -19,6 +18,7 @@ import {
 } from "firebase/auth";
 import { auth, db, firebaseConfig } from "./firebase";
 import { updateYouth } from "./youths";
+import { pickShared } from "./sharedDetails";
 import type { ExcoMember, ExcoRole, Youth } from "@/types";
 
 export interface ExcoFilters {
@@ -49,26 +49,57 @@ export function hasLogin(exco: Pick<ExcoMember, "uid">): boolean {
   return !!exco.uid;
 }
 
+/**
+ * For an exco who was made from a youth, takes name, phone, gender,
+ * birthday and unit from the youth record, which is the source of truth.
+ * (Writes keep the exco's own copy in step too, but an older record, or an
+ * edit made by someone not allowed to touch excos, can leave it behind.)
+ * External admins have no youth record and come back unchanged.
+ */
+export async function withYouthDetails(exco: ExcoMember): Promise<ExcoMember> {
+  if (!exco.youthId) return exco;
+  try {
+    const snap = await getDoc(doc(db, "youths", exco.youthId));
+    if (!snap.exists()) return exco;
+    const y = snap.data() as Youth;
+    return { ...exco, name: y.name, phone: y.phone, gender: y.gender, dob: y.dob, unit: y.unit };
+  } catch {
+    return exco;
+  }
+}
+
 export async function listExcos(filters: ExcoFilters = {}): Promise<ExcoMember[]> {
   const clauses = [];
   if (filters.activeOnly) clauses.push(where("active", "==", true));
-  if (filters.unit) clauses.push(where("unit", "==", filters.unit));
 
-  const q = query(collection(db, "excos"), ...clauses, orderBy("name"));
-  const snap = await getDocs(q);
-  let excos = snap.docs.map((d) => fromDoc(d.id, d.data()));
+  const snap = await getDocs(query(collection(db, "excos"), ...clauses));
+  let excos = await Promise.all(snap.docs.map((d) => withYouthDetails(fromDoc(d.id, d.data()))));
 
+  // Filtered and sorted here, after the youth details are in, so a youth's
+  // current name and unit are what's matched (not a stale copy).
+  if (filters.unit) excos = excos.filter((m) => m.unit === filters.unit);
   if (filters.search) {
     const term = filters.search.toLowerCase();
     excos = excos.filter((m) => m.name.toLowerCase().includes(term));
   }
-
-  return excos;
+  return excos.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function getExco(id: string): Promise<ExcoMember | null> {
   const snap = await getDoc(doc(db, "excos", id));
-  return snap.exists() ? fromDoc(snap.id, snap.data()) : null;
+  return snap.exists() ? withYouthDetails(fromDoc(snap.id, snap.data())) : null;
+}
+
+/**
+ * The youths who can still be picked on their own: anyone who is already
+ * in the given list of excos is left out. Use this wherever a list of
+ * excos and a list of youths are offered side by side, so the same person
+ * can't be chosen twice (once as an exco, once as a youth).
+ */
+export function youthsNotInExcos(youths: Youth[], excos: ExcoMember[]): Youth[] {
+  const youthIds = new Set(excos.map((e) => e.youthId).filter((x): x is string => !!x));
+  const excoIds = new Set(excos.map((e) => e.id));
+  return youths.filter((y) => !youthIds.has(y.id) && !(y.linkedExcoId && excoIds.has(y.linkedExcoId)));
 }
 
 function generateDefaultPassword(length = 10): string {
@@ -199,7 +230,20 @@ export async function resendInvite(email: string): Promise<void> {
   await sendPasswordResetEmail(auth, email);
 }
 
+/**
+ * Updates an exco. For someone made from a youth, their shared details
+ * (name, phone, gender, birthday, unit) are written to the youth record
+ * first, since that's the source of truth, and then to the exco record.
+ * If the youth write isn't allowed this throws, so the edit doesn't look
+ * saved when it wasn't.
+ */
 export async function updateExco(id: string, data: Partial<ExcoMember>): Promise<void> {
+  const shared = pickShared(data as Record<string, unknown>);
+  if (Object.keys(shared).length > 0) {
+    const snap = await getDoc(doc(db, "excos", id));
+    const youthId = snap.exists() ? (snap.data() as { youthId?: string }).youthId : undefined;
+    if (youthId) await updateDoc(doc(db, "youths", youthId), shared);
+  }
   await updateDoc(doc(db, "excos", id), withoutUndefined(data));
 }
 

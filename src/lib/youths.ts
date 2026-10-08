@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { listContributions } from "./contributions";
+import { pickShared } from "./sharedDetails";
 import type { Youth, InactiveReason } from "@/types";
 
 export interface YouthFilters {
@@ -57,8 +58,25 @@ export async function createYouth(
   return ref.id;
 }
 
+/**
+ * Updates a youth. If they're also an exco, their shared details (name,
+ * phone, gender, birthday, unit) are written to the exco record too, so the
+ * two never disagree. The youth write is the one that matters; the exco
+ * copy is best-effort (someone who can edit youths isn't always allowed to
+ * edit excos), and lists of excos read these details from the youth anyway.
+ */
 export async function updateYouth(id: string, data: Partial<Youth>): Promise<void> {
   await updateDoc(doc(db, "youths", id), data);
+
+  const shared = pickShared(data as Record<string, unknown>);
+  if (Object.keys(shared).length === 0) return;
+  try {
+    const snap = await getDoc(doc(db, "youths", id));
+    const excoId = snap.exists() ? (snap.data() as Youth).linkedExcoId : undefined;
+    if (excoId) await updateDoc(doc(db, "excos", excoId), shared);
+  } catch {
+    // Not allowed, or the exco record is gone. Nothing more to do here.
+  }
 }
 
 /** Marks a youth inactive (married, left the church, etc.) rather than deleting their record. */

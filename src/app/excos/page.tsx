@@ -9,6 +9,7 @@ import RequireAuth from "@/components/RequireAuth";
 import ExcoForm from "@/components/ExcoForm";
 import InviteExcoForm from "@/components/InviteExcoForm";
 import ExternalAdminForm from "@/components/ExternalAdminForm";
+import { ConfirmDialog } from "@/components/Modal";
 import { formatPersonName } from "@/lib/formatName";
 import { Page, PageHeader, Badge, Loading, EmptyState, Notice } from "@/components/ui";
 import type { ExcoMember, RoleConfig } from "@/types";
@@ -24,6 +25,10 @@ function ExcoDirectoryInner() {
   const [inviting, setInviting] = useState<ExcoMember | null>(null);
   const [addingExternal, setAddingExternal] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  // The action waiting for confirmation in a dialog, and who it's about.
+  const [action, setAction] = useState<{ kind: "retire" | "reinstate" | "resend"; exco: ExcoMember } | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const canManage = hasPermission("canManageRoles");
 
@@ -45,13 +50,37 @@ function ExcoDirectoryInner() {
 
   const roleLabel = (role: string) => roles.find((r) => r.role === role)?.label ?? fallbackRoleLabel(role);
 
-  async function handleResend(m: ExcoMember) {
-    if (!m.email) return;
+  function openAction(kind: "retire" | "reinstate" | "resend", exco: ExcoMember) {
+    setAction({ kind, exco });
+    setActionError(null);
+    setNotice(null);
+  }
+
+  async function runAction() {
+    if (!action) return;
+    const { kind, exco } = action;
+    const who = formatPersonName(exco.name, exco.gender);
+    setActionBusy(true);
+    setActionError(null);
     try {
-      await resendInvite(m.email);
-      setNotice({ tone: "success", text: `Sent ${formatPersonName(m.name, m.gender)} a link to set their password.` });
+      if (kind === "resend") {
+        if (!exco.email) throw new Error("no-email");
+        await resendInvite(exco.email);
+        setNotice({ tone: "success", text: `Sent ${who} a link to set their password.` });
+      } else {
+        await (kind === "retire" ? retireExco(exco.id) : reinstateExco(exco.id));
+        setNotice({ tone: "success", text: kind === "retire" ? `${who} has been retired.` : `${who} has been reinstated.` });
+        await refresh();
+      }
+      setAction(null);
     } catch {
-      setNotice({ tone: "error", text: "Couldn't send that email. Try again in a moment." });
+      setActionError(
+        kind === "resend"
+          ? "Couldn't send that email. Try again in a moment."
+          : `Couldn't ${kind} ${who}. Try again.`
+      );
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -210,7 +239,7 @@ function ExcoDirectoryInner() {
                       {m.active &&
                         (hasLogin(m) ? (
                           m.email && (
-                            <button onClick={() => handleResend(m)} className="btn-ghost">
+                            <button onClick={() => openAction("resend", m)} className="btn-ghost">
                               Resend invite
                             </button>
                           )
@@ -222,10 +251,7 @@ function ExcoDirectoryInner() {
                       <button onClick={() => setEditing(m)} className="btn-ghost">
                         Edit
                       </button>
-                      <button
-                        onClick={() => (m.active ? retireExco(m.id) : reinstateExco(m.id)).then(refresh)}
-                        className="btn-ghost !text-muted"
-                      >
+                      <button onClick={() => openAction(m.active ? "retire" : "reinstate", m)} className="btn-ghost !text-muted">
                         {m.active ? "Retire" : "Reinstate"}
                       </button>
                     </td>
@@ -235,6 +261,46 @@ function ExcoDirectoryInner() {
             </tbody>
           </table>
         </div>
+      )}
+      {action && (
+        <ConfirmDialog
+          open
+          title={
+            action.kind === "retire"
+              ? "Retire this exco?"
+              : action.kind === "reinstate"
+                ? "Reinstate this exco?"
+                : "Resend the invite?"
+          }
+          subject={{
+            name: formatPersonName(action.exco.name, action.exco.gender),
+            detail:
+              action.kind === "resend"
+                ? action.exco.email
+                : [roleLabel(action.exco.role), action.exco.title].filter(Boolean).join(" · "),
+          }}
+          tone={action.kind === "retire" ? "danger" : "primary"}
+          confirmLabel={
+            action.kind === "retire" ? "Retire" : action.kind === "reinstate" ? "Reinstate" : "Send the email"
+          }
+          busyLabel={action.kind === "resend" ? "Sending…" : "Saving…"}
+          busy={actionBusy}
+          error={actionError}
+          onConfirm={runAction}
+          onCancel={() => !actionBusy && setAction(null)}
+          description={
+            action.kind === "retire" ? (
+              <>
+                They&apos;ll lose access to the platform straight away. Their records are kept, and you can
+                reinstate them later.
+              </>
+            ) : action.kind === "reinstate" ? (
+              <>They&apos;ll get their access back, with the same role as before.</>
+            ) : (
+              <>This emails them a link to set their password.</>
+            )
+          }
+        />
       )}
     </Page>
   );

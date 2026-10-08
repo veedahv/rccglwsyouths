@@ -12,7 +12,7 @@ import { listExcos } from "@/lib/excos";
 import { listYouths } from "@/lib/youths";
 import { useAuth } from "@/lib/useAuth";
 import { formatPersonName } from "@/lib/formatName";
-import { formatDate, naira, pluralize } from "@/lib/format";
+import { formatDate, formatQuantity, naira, pluralize } from "@/lib/format";
 import {
   contributionPeriod,
   contributionStartDate,
@@ -27,6 +27,7 @@ import {
   ContributionBar,
   ContributionLegend,
   ContributionStatusBadge,
+  hasItems,
 } from "@/components/ContributionProgress";
 import type { Contribution, Pledge, ExternalSupport, ExcoMember, Youth } from "@/types";
 
@@ -148,7 +149,7 @@ function ContributionDetailInner({ id }: { id: string }) {
 
       <div className="space-y-6">
         <Card>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-5 lg:grid-cols-4">
+          <div className={`grid grid-cols-2 gap-x-6 gap-y-5 ${hasItems(stats) ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
             <Stat
               label="Total received"
               value={naira(stats.totalReceived)}
@@ -183,6 +184,23 @@ function ContributionDetailInner({ id }: { id: string }) {
                   : undefined
               }
             />
+            {hasItems(stats) && (
+              <Stat
+                label="Items received"
+                value={formatQuantity(stats.itemsReceived)}
+                tone="green"
+                hint={
+                  [
+                    stats.itemsPledged > 0 ? `of ${pluralize(stats.itemsPledged, "pledged item")}` : null,
+                    stats.itemsReceivedFromExternal > 0
+                      ? `${formatQuantity(stats.itemsReceivedFromExternal)} from outside supporters`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || undefined
+                }
+              />
+            )}
           </div>
 
           <div className="mt-6">

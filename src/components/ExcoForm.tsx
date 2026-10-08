@@ -61,6 +61,12 @@ export default function ExcoForm({ existing, roles, onSaved, onCancel }: Props) 
         <Field label="Name">
           <input value={name} onChange={(e) => setName(e.target.value)} className="input" required />
         </Field>
+        {existing.youthId && (
+          <p className="hint -mt-2">
+            This exco is also on the youth roster. Name, phone, gender, birthday and unit are shared with their
+            youth record: changing them here changes them there too.
+          </p>
+        )}
 
         {existing.external && (
           <Field label="Title" hint="How they're described, e.g. Church Pastor or Youth Pastor.">

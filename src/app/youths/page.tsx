@@ -16,7 +16,8 @@ import { useAuth } from "@/lib/useAuth";
 import { formatPersonName } from "@/lib/formatName";
 import RequireAuth from "@/components/RequireAuth";
 import YouthForm from "@/components/YouthForm";
-import { Page, PageHeader, Card, Field, Badge, Loading, EmptyState, Notice, Stat } from "@/components/ui";
+import { ConfirmDialog } from "@/components/Modal";
+import { Page, PageHeader, Card, Field, Badge, Loading, EmptyState, Stat } from "@/components/ui";
 import type { Youth, InactiveReason, RoleConfig } from "@/types";
 
 const INACTIVE_REASON_LABEL: Record<InactiveReason, string> = {
@@ -26,6 +27,7 @@ const INACTIVE_REASON_LABEL: Record<InactiveReason, string> = {
 };
 
 type StatusFilter = "active" | "inactive" | "all";
+type YouthAction = "delete" | "exco" | "inactive" | "reactivate";
 
 function YouthDirectoryInner() {
   const { hasPermission } = useAuth();
@@ -36,9 +38,13 @@ function YouthDirectoryInner() {
   const [allYouths, setAllYouths] = useState<Youth[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<StatusFilter>("active");
-  const [deletingId, setDeletingId] = useState<string | null>(null); // row showing the confirm
-  const [busyDeleteId, setBusyDeleteId] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  // The action waiting for confirmation in a dialog, and who it's about.
+  const [action, setAction] = useState<{ kind: YouthAction; youth: Youth } | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [deleteBlocker, setDeleteBlocker] = useState<string | null>(null);
+  const [pickedRole, setPickedRole] = useState("");
+  const [pickedReason, setPickedReason] = useState<InactiveReason | "">("");
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [name, setName] = useState("");
@@ -46,10 +52,7 @@ function YouthDirectoryInner() {
   const [gender, setGender] = useState("");
   const [unit, setUnit] = useState("");
   const [saving, setSaving] = useState(false);
-  const [retiringId, setRetiringId] = useState<string | null>(null);
-  const [promotingId, setPromotingId] = useState<string | null>(null);
   const [roles, setRoles] = useState<RoleConfig[]>([]);
-  const [promoteError, setPromoteError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   async function refresh() {
@@ -69,24 +72,30 @@ function YouthDirectoryInner() {
       (filter === "all" || (filter === "active") === y.active) && (!term || y.name.toLowerCase().includes(term))
   );
 
-  async function handleDelete(youth: Youth) {
-    setDeleteError(null);
-    setBusyDeleteId(youth.id);
-    try {
-      const blocker = await getYouthDeleteBlocker(youth);
-      if (blocker) {
-        setDeleteError(`Can't delete ${formatPersonName(youth.name, youth.gender)}. ${blocker}`);
-      } else {
-        await deleteYouth(youth.id);
-        await refresh();
-      }
-    } catch {
-      setDeleteError(`Couldn't delete ${formatPersonName(youth.name, youth.gender)}. Try again.`);
-    } finally {
-      setBusyDeleteId(null);
-      setDeletingId(null);
-    }
+  function openAction(kind: YouthAction, youth: Youth) {
+    setAction({ kind, youth });
+    setActionError(null);
+    setDeleteBlocker(null);
+    setPickedRole("");
+    setPickedReason("");
   }
+
+  function closeAction() {
+    if (!actionBusy) setAction(null);
+  }
+
+  // Deleting is refused for anyone with money records, so find out as soon
+  // as the dialog opens rather than after they've confirmed.
+  useEffect(() => {
+    if (action?.kind !== "delete") return;
+    let cancelled = false;
+    getYouthDeleteBlocker(action.youth)
+      .then((blocker) => !cancelled && setDeleteBlocker(blocker))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [action]);
 
   // Only people who can manage excos see "Make exco", so only they need the role list.
   useEffect(() => {
@@ -112,23 +121,37 @@ function YouthDirectoryInner() {
     refresh();
   }
 
-  async function handleSetInactive(id: string, reason: InactiveReason) {
-    await setYouthInactive(id, reason);
-    setRetiringId(null);
-    refresh();
-  }
-
-  // Setting a youth as an exco is just a status change: pick a role and
-  // it's done. No email or login here. They're invited later, from the
-  // Excos page, when they're ready to sign in.
-  async function handleMakeExco(youth: Youth, role: string) {
-    setPromoteError(null);
+  async function runAction() {
+    if (!action) return;
+    const { kind, youth } = action;
+    const who = formatPersonName(youth.name, youth.gender);
+    setActionBusy(true);
+    setActionError(null);
     try {
-      await promoteYouthToExco(youth, role);
-      setPromotingId(null);
-      refresh();
+      if (kind === "delete") {
+        await deleteYouth(youth.id);
+      } else if (kind === "exco") {
+        // Setting a youth as an exco is just a status change: pick a role
+        // and it's done. No email or login here. They're invited later,
+        // from the Excos page, when they're ready to sign in.
+        await promoteYouthToExco(youth, pickedRole);
+      } else if (kind === "inactive") {
+        await setYouthInactive(youth.id, pickedReason as InactiveReason);
+      } else {
+        await reactivateYouth(youth.id);
+      }
+      setAction(null);
+      await refresh();
     } catch {
-      setPromoteError(`Couldn't make ${formatPersonName(youth.name, youth.gender)} an exco. Try again.`);
+      setActionError(
+        kind === "delete"
+          ? `Couldn't delete ${who}. Try again.`
+          : kind === "exco"
+            ? `Couldn't make ${who} an exco. Try again.`
+            : `Couldn't update ${who}. Try again.`
+      );
+    } finally {
+      setActionBusy(false);
     }
   }
 
@@ -185,9 +208,6 @@ function YouthDirectoryInner() {
             onCancel={() => setEditingId(null)}
           />
         )}
-
-        {promoteError && <Notice tone="error">{promoteError}</Notice>}
-        {deleteError && <Notice tone="error">{deleteError}</Notice>}
 
         <div className="grid grid-cols-3 gap-3">
           {(
@@ -280,32 +300,13 @@ function YouthDirectoryInner() {
                       <button onClick={() => setEditingId(y.id)} className="btn-ghost">
                         Edit
                       </button>
-                      {y.active &&
-                        (retiringId === y.id ? (
-                          <select
-                            autoFocus
-                            onChange={(e) => handleSetInactive(y.id, e.target.value as InactiveReason)}
-                            onBlur={() => setRetiringId(null)}
-                            aria-label="Reason for marking inactive"
-                            className="input ml-1 w-auto py-1 text-xs"
-                            defaultValue=""
-                          >
-                            <option value="" disabled>
-                              Reason…
-                            </option>
-                            {Object.entries(INACTIVE_REASON_LABEL).map(([value, label]) => (
-                              <option key={value} value={value}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <button onClick={() => setRetiringId(y.id)} className="btn-ghost !text-muted">
-                            Mark inactive
-                          </button>
-                        ))}
+                      {y.active && (
+                        <button onClick={() => openAction("inactive", y)} className="btn-ghost !text-muted">
+                          Mark inactive
+                        </button>
+                      )}
                       {!y.active && (
-                        <button onClick={() => reactivateYouth(y.id).then(refresh)} className="btn-ghost">
+                        <button onClick={() => openAction("reactivate", y)} className="btn-ghost">
                           Reactivate
                         </button>
                       )}
@@ -314,61 +315,16 @@ function YouthDirectoryInner() {
                           <Link href={`/excos/${y.linkedExcoId}`} className="btn-ghost">
                             View exco
                           </Link>
-                        ) : promotingId === y.id ? (
-                          <select
-                            autoFocus
-                            onChange={(e) => handleMakeExco(y, e.target.value)}
-                            onBlur={() => setPromotingId(null)}
-                            aria-label="Role for the new exco"
-                            className="input ml-1 w-auto py-1 text-xs"
-                            defaultValue=""
-                          >
-                            <option value="" disabled>
-                              Role…
-                            </option>
-                            {roles.map((r) => (
-                              <option key={r.role} value={r.role}>
-                                {r.label}
-                              </option>
-                            ))}
-                          </select>
                         ) : (
-                          <button
-                            onClick={() => {
-                              setPromoteError(null);
-                              setPromotingId(y.id);
-                            }}
-                            className="btn-ghost"
-                          >
+                          <button onClick={() => openAction("exco", y)} className="btn-ghost">
                             Make exco
                           </button>
                         ))}
-                      {canManage &&
-                        (deletingId === y.id ? (
-                          <span className="ml-1 inline-flex items-center gap-1 text-xs">
-                            <span className="text-muted">Delete for good?</span>
-                            <button
-                              onClick={() => handleDelete(y)}
-                              disabled={busyDeleteId === y.id}
-                              className="btn-ghost-danger"
-                            >
-                              {busyDeleteId === y.id ? "Deleting…" : "Yes, delete"}
-                            </button>
-                            <button onClick={() => setDeletingId(null)} className="btn-ghost">
-                              Cancel
-                            </button>
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              setDeleteError(null);
-                              setDeletingId(y.id);
-                            }}
-                            className="btn-ghost-danger"
-                          >
-                            Delete
-                          </button>
-                        ))}
+                      {canManage && (
+                        <button onClick={() => openAction("delete", y)} className="btn-ghost-danger">
+                          Delete
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -377,6 +333,94 @@ function YouthDirectoryInner() {
           </div>
         )}
       </div>
+      {action && (
+        <ConfirmDialog
+          open
+          title={
+            action.kind === "delete"
+              ? "Delete this youth?"
+              : action.kind === "exco"
+                ? "Make this youth an exco?"
+                : action.kind === "inactive"
+                  ? "Mark this youth inactive?"
+                  : "Reactivate this youth?"
+          }
+          subject={{
+            name: formatPersonName(action.youth.name, action.youth.gender),
+            detail: [action.youth.unit, action.youth.phone].filter(Boolean).join(" · ") || undefined,
+          }}
+          tone={action.kind === "delete" ? "danger" : "primary"}
+          confirmLabel={
+            action.kind === "delete"
+              ? "Delete for good"
+              : action.kind === "exco"
+                ? "Make exco"
+                : action.kind === "inactive"
+                  ? "Mark inactive"
+                  : "Reactivate"
+          }
+          busyLabel={action.kind === "delete" ? "Deleting…" : "Saving…"}
+          busy={actionBusy}
+          error={actionError}
+          blockedReason={
+            action.kind === "delete" && deleteBlocker
+              ? `${deleteBlocker} You can mark them inactive instead.`
+              : null
+          }
+          confirmDisabled={
+            (action.kind === "exco" && !pickedRole) || (action.kind === "inactive" && !pickedReason)
+          }
+          onConfirm={runAction}
+          onCancel={closeAction}
+          description={
+            action.kind === "delete" ? (
+              <>This permanently removes their record. It can&apos;t be undone.</>
+            ) : action.kind === "exco" ? (
+              <>
+                They&apos;ll appear on the Excos page as &ldquo;Not invited&rdquo;. You can invite them to sign in
+                from there when they&apos;re ready.
+              </>
+            ) : action.kind === "inactive" ? (
+              <>They&apos;ll leave the active roster, and their records are kept.</>
+            ) : (
+              <>They&apos;ll go back on the active roster.</>
+            )
+          }
+        >
+          {action.kind === "exco" && (
+            <Field label="Role">
+              <select value={pickedRole} onChange={(e) => setPickedRole(e.target.value)} className="input">
+                <option value="" disabled>
+                  Choose a role…
+                </option>
+                {roles.map((r) => (
+                  <option key={r.role} value={r.role}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          {action.kind === "inactive" && (
+            <Field label="Reason">
+              <select
+                value={pickedReason}
+                onChange={(e) => setPickedReason(e.target.value as InactiveReason)}
+                className="input"
+              >
+                <option value="" disabled>
+                  Choose a reason…
+                </option>
+                {Object.entries(INACTIVE_REASON_LABEL).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+        </ConfirmDialog>
+      )}
     </Page>
   );
 }

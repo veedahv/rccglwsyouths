@@ -4,13 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getDashboardData, DashboardData } from "@/lib/dashboard";
 import { contributionPeriod, contributionTiming } from "@/lib/contributionStatus";
-import { formatDate, naira, pluralize } from "@/lib/format";
+import { formatDate, formatQuantity, naira, pluralize } from "@/lib/format";
 import RequireAuth from "@/components/RequireAuth";
 import { Page, PageHeader, Card, Stat, Loading, EmptyState } from "@/components/ui";
 import {
   ContributionBar,
   ContributionLegend,
   ContributionStatusBadge,
+  hasItems,
+  ItemsLine,
 } from "@/components/ContributionProgress";
 
 function MoneyCard({
@@ -137,7 +139,9 @@ function DashboardInner() {
                 <ContributionStatusBadge contribution={featured} />
               </div>
 
-              <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
+              <div
+                className={`mt-5 grid grid-cols-2 gap-x-6 gap-y-4 ${hasItems(featured.stats) ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}
+              >
                 <Stat label="Received" value={naira(featured.stats.totalReceived)} tone="green" />
                 <Stat label="Pledged" value={naira(featured.stats.totalPledged)} />
                 <Stat
@@ -150,11 +154,24 @@ function DashboardInner() {
                       : undefined
                   }
                 />
+                {hasItems(featured.stats) && (
+                  <Stat
+                    label="Items received"
+                    value={formatQuantity(featured.stats.itemsReceived)}
+                    tone="green"
+                    hint={
+                      featured.stats.itemsPledged > 0
+                        ? `of ${pluralize(featured.stats.itemsPledged, "pledged item")}`
+                        : undefined
+                    }
+                  />
+                )}
               </div>
 
               <div className="mt-5">
                 <ContributionBar stats={featured.stats} className="h-3" />
                 <ContributionLegend stats={featured.stats} />
+                <ItemsLine stats={featured.stats} className="mt-3" />
               </div>
             </div>
           ) : (

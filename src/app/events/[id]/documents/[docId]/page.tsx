@@ -19,6 +19,7 @@ import { fallbackRoleLabel } from "@/lib/roles";
 import { formatDate, formatDateTime, naira } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
+import { ConfirmDialog } from "@/components/Modal";
 import {
   ContactsEditor,
   RequestedItemsPicker,
@@ -47,6 +48,9 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [confirm, setConfirm] = useState<"reopen" | "delete" | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const canEditEvents = hasPermission("canEditEvents");
 
@@ -109,7 +113,7 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
     setMessage(null);
   }
 
-  async function persist(next: EventDocument, success: string) {
+  async function persist(next: EventDocument, success: string): Promise<boolean> {
     setSaving(true);
     setMessage(null);
     try {
@@ -117,8 +121,10 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
       setDraft(next);
       setSavedJson(JSON.stringify(strip(next)));
       setMessage({ tone: "success", text: success });
+      return true;
     } catch {
       setMessage({ tone: "error", text: "Couldn't save. Check your connection and try again." });
+      return false;
     } finally {
       setSaving(false);
     }
@@ -147,26 +153,28 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
 
   async function handleReopen() {
     if (!draft) return;
-    if (
-      !window.confirm(
-        "Reopen this for editing? Changing a signed document makes the signatures invalid, so they will be cleared and everyone signs again."
-      )
-    )
-      return;
-    await persist(
-      {
-        ...draft,
-        status: "draft",
-        budgetSnapshot: undefined,
-        itemsSnapshot: undefined,
-        signatories: draft.signatories.map(({ signatureDataUrl, signedOn, ...rest }) => {
-          void signatureDataUrl;
-          void signedOn;
-          return rest;
-        }),
-      },
-      "Reopened. The signatures were cleared."
-    );
+    setConfirmBusy(true);
+    setConfirmError(null);
+    try {
+      const ok = await persist(
+        {
+          ...draft,
+          status: "draft",
+          budgetSnapshot: undefined,
+          itemsSnapshot: undefined,
+          signatories: draft.signatories.map(({ signatureDataUrl, signedOn, ...rest }) => {
+            void signatureDataUrl;
+            void signedOn;
+            return rest;
+          }),
+        },
+        "Reopened. The signatures were cleared."
+      );
+      if (ok) setConfirm(null);
+      else setConfirmError("Couldn't reopen it. Check your connection and try again.");
+    } finally {
+      setConfirmBusy(false);
+    }
   }
 
   async function handleDownload() {
@@ -182,9 +190,15 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
   }
 
   async function handleDelete() {
-    if (!window.confirm("Delete this document? This can't be undone.")) return;
-    await deleteEventDocument(eventId, documentId);
-    router.push(`/events/${eventId}`);
+    setConfirmBusy(true);
+    setConfirmError(null);
+    try {
+      await deleteEventDocument(eventId, documentId);
+      router.push(`/events/${eventId}`);
+    } catch {
+      setConfirmError("Couldn't delete this. Check your connection and try again.");
+      setConfirmBusy(false);
+    }
   }
 
   return (
@@ -213,7 +227,7 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
             {canEditEvents && (
               <>
                 {" "}
-                <button onClick={handleReopen} disabled={saving} className="link">
+                <button onClick={() => { setConfirmError(null); setConfirm("reopen"); }} disabled={saving} className="link">
                   Reopen for editing
                 </button>
               </>
@@ -494,7 +508,7 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
               <button onClick={handleMarkSigned} disabled={!readyToSign || saving || dirty} className="btn-primary btn-sm">
                 Mark as signed
               </button>
-              <button onClick={handleDelete} className="btn-ghost-danger">
+              <button onClick={() => { setConfirmError(null); setConfirm("delete"); }} className="btn-ghost-danger">
                 Delete document
               </button>
             </div>
@@ -522,6 +536,25 @@ function EventDocumentInner({ eventId, documentId }: { eventId: string; document
             </button>
           </div>
         </div>
+      )}
+      {confirm && (
+        <ConfirmDialog
+          open
+          title={confirm === "delete" ? "Delete this document?" : "Reopen for editing?"}
+          subject={{ name: draft.title || DOCUMENT_KIND_LABEL[draft.kind] }}
+          tone={confirm === "delete" ? "danger" : "primary"}
+          confirmLabel={confirm === "delete" ? "Delete" : "Reopen"}
+          busyLabel={confirm === "delete" ? "Deleting…" : "Reopening…"}
+          busy={confirmBusy}
+          error={confirmError}
+          description={
+            confirm === "delete"
+              ? "This can't be undone."
+              : "Changing a signed document makes the signatures invalid, so they will be cleared and everyone signs again."
+          }
+          onConfirm={confirm === "delete" ? handleDelete : handleReopen}
+          onCancel={() => !confirmBusy && setConfirm(null)}
+        />
       )}
     </Page>
   );

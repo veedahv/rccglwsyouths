@@ -1,5 +1,6 @@
 "use client";
 
+import { ConfirmDialog } from "@/components/Modal";
 import { useState } from "react";
 import Link from "next/link";
 import { MONTH_NAMES, STATUS_LABEL, type ProgrammeInput } from "@/lib/programmes";
@@ -41,6 +42,8 @@ export default function ProgrammeCard({
   const [mode, setMode] = useState<"view" | "edit" | "event">("view");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Event form defaults: the suggested month's 1st (the team picks the real day).
   const [evTitle, setEvTitle] = useState(p.title);
@@ -58,6 +61,19 @@ export default function ProgrammeCard({
       await action();
     } catch {
       setError("That didn't work. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    setBusy(true);
+    setDeleteError(null);
+    try {
+      await onDelete();
+      setConfirmingDelete(false);
+    } catch {
+      setDeleteError("Couldn't delete this. Check your connection and try again.");
     } finally {
       setBusy(false);
     }
@@ -195,7 +211,8 @@ export default function ProgrammeCard({
                   <button
                     disabled={busy}
                     onClick={() => {
-                      if (window.confirm(`Delete “${p.title}”? This can't be undone.`)) run(onDelete);
+                      setDeleteError(null);
+                      setConfirmingDelete(true);
                     }}
                     className="btn-ghost-danger"
                   >
@@ -206,6 +223,21 @@ export default function ProgrammeCard({
             </>
           )}
         </div>
+      )}
+      {confirmingDelete && (
+        <ConfirmDialog
+          open
+          title="Delete this programme?"
+          subject={{ name: p.title }}
+          tone="danger"
+          confirmLabel="Delete"
+          busyLabel="Deleting…"
+          busy={busy}
+          error={deleteError}
+          description="This can't be undone."
+          onConfirm={confirmDelete}
+          onCancel={() => !busy && setConfirmingDelete(false)}
+        />
       )}
     </div>
   );

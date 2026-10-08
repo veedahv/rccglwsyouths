@@ -20,6 +20,7 @@ import {
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { fallbackRoleLabel, resolveRoleConfig } from "./roles";
+import { withYouthDetails } from "./excos";
 import type { ExcoMember, Permissions, RoleConfig } from "@/types";
 
 interface AuthContextValue {
@@ -84,8 +85,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         doc(db, "excos", excoId),
         (snap) => {
           if (snap.exists()) {
-            setExco({ uid: user.uid, ...(snap.data() as Omit<ExcoMember, "id" | "uid">), id: snap.id });
+            const own: ExcoMember = {
+              uid: user.uid,
+              ...(snap.data() as Omit<ExcoMember, "id" | "uid">),
+              id: snap.id,
+            };
+            setExco(own);
             setError(null);
+            // If they were made from a youth, show the youth record's details
+            // (name, phone…), which is where those are kept up to date.
+            withYouthDetails(own).then((full) => {
+              if (!cancelled && full !== own) setExco(full);
+            });
           } else {
             // Signed in with Firebase Auth but no matching exco record —
             // shouldn't normally happen, but guard against it rather than

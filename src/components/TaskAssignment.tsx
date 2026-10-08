@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { formatPersonName } from "@/lib/formatName";
 import { formatDate } from "@/lib/format";
+import { youthsNotInExcos } from "@/lib/excos";
 import { Badge, Tone } from "@/components/ui";
 import type { EventTask, ExcoMember, Youth } from "@/types";
 
@@ -149,7 +150,8 @@ export default function TaskAssignment({
               ))}
             </optgroup>
             <optgroup label="Youths">
-              {youths.map((y) => (
+              {/* Youths who are excos are already listed above — not offered twice. */}
+              {youthsNotInExcos(youths, excos).map((y) => (
                 <option key={y.id} value={y.id}>
                   {formatPersonName(y.name, y.gender)}
                 </option>

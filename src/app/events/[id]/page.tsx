@@ -30,7 +30,7 @@ import NeededItemsEditor from "@/components/NeededItemsEditor";
 import StartEventContribution from "@/components/StartEventContribution";
 import EventDocuments from "@/components/EventDocuments";
 import { Page, PageHeader, Card, Badge, Field, Loading, Notice } from "@/components/ui";
-import { ContributionBar, ContributionStatusBadge } from "@/components/ContributionProgress";
+import { ContributionBar, ContributionStatusBadge, ItemsLine } from "@/components/ContributionProgress";
 import type {
   ChurchEvent,
   ExcoMember,
@@ -332,29 +332,7 @@ function EventDetailInner({ id }: { id: string }) {
                       received of {naira(contributionStats.totalPledged)} pledged
                     </span>
                   </p>
-                  {contributionStats.externalItemTotals.length > 0 && (
-                    <p className="mt-1 text-sm text-muted">
-                      Items from outside supporters:{" "}
-                      <span className="font-semibold text-ink">
-                        {contributionStats.externalItemTotals
-                          .map((t) => {
-                            const qty = Number.isInteger(t.received) ? t.received : t.received.toFixed(1);
-                            return t.unit ? `${qty} ${t.unit} of ${t.name}` : `${qty} × ${t.name}`;
-                          })
-                          .join(", ")}
-                      </span>
-                    </p>
-                  )}
-                  {contributionStats.itemTotals.length > 0 && (
-                    <p className="mt-1 text-sm text-muted">
-                      Items:{" "}
-                      <span className="num font-semibold text-ink">
-                        {contributionStats.itemTotals.filter((t) => t.received >= t.pledged).length}
-                      </span>{" "}
-                      of {contributionStats.itemTotals.length} pledged{" "}
-                      {contributionStats.itemTotals.length === 1 ? "item" : "items"} fully received
-                    </p>
-                  )}
+                  <ItemsLine stats={contributionStats} className="mt-2" />
                 </div>
               )}
             </div>

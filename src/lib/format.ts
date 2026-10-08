@@ -56,3 +56,8 @@ export function formatDateTime(date: string, time?: string | null): string {
   const t = formatTime(time);
   return t ? `${formatDate(date)} · ${t}` : formatDate(date);
 }
+
+/** 3 → "3", 0.5 → "0.5". Item quantities can be halves, so no fixed decimals. */
+export function formatQuantity(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}

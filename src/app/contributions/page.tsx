@@ -7,7 +7,7 @@ import { listExcos } from "@/lib/excos";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
 import { Page, PageHeader, Card, Field, Loading, EmptyState, Notice } from "@/components/ui";
-import { ContributionBar, ContributionStatusBadge } from "@/components/ContributionProgress";
+import { ContributionBar, ContributionStatusBadge, ItemsLine } from "@/components/ContributionProgress";
 import { formatPersonName } from "@/lib/formatName";
 import { naira, todayISO } from "@/lib/format";
 import {
@@ -46,6 +46,8 @@ function ContributionCard({ item, inCharge }: { item: ContributionWithStats; inC
           <p className="text-sm font-medium text-ink">{inCharge}</p>
         </div>
       </div>
+
+      <ItemsLine stats={stats} className="mt-3" />
 
       {stats.outstanding > 0 && (
         <p className={`mt-3 text-xs font-medium ${status === "ended" ? "text-rccg-red-600" : "text-muted"}`}>

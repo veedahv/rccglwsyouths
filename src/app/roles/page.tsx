@@ -11,6 +11,7 @@ import {
 } from "@/lib/roles";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
+import { ConfirmDialog } from "@/components/Modal";
 import { Page, PageHeader, Card, Field, Loading, Notice } from "@/components/ui";
 import type { RoleConfig, Permissions, ExcoRole } from "@/types";
 
@@ -38,6 +39,9 @@ function RolesInner() {
   const [newRoleName, setNewRoleName] = useState("");
   const [addingRole, setAddingRole] = useState(false);
   const [roleError, setRoleError] = useState<string | null>(null);
+  const [roleToRemove, setRoleToRemove] = useState<RoleConfig | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -75,13 +79,18 @@ function RolesInner() {
     }
   }
 
-  async function handleDeleteRole(config: RoleConfig) {
-    setRoleError(null);
+  async function handleDeleteRole() {
+    if (!roleToRemove) return;
+    setRemoveBusy(true);
+    setRemoveError(null);
     try {
-      await deleteCustomRole(config.role);
+      await deleteCustomRole(roleToRemove.role);
+      setRoleToRemove(null);
       await refresh();
     } catch (err) {
-      setRoleError(err instanceof RoleError ? err.message : "Couldn't remove this role. Try again.");
+      setRemoveError(err instanceof RoleError ? err.message : "Couldn't remove this role. Try again.");
+    } finally {
+      setRemoveBusy(false);
     }
   }
 
@@ -136,7 +145,11 @@ function RolesInner() {
                       {canEdit && (
                         <td className="whitespace-nowrap text-right">
                           {!isBuiltInRole(config.role) && (
-                            <button onClick={() => handleDeleteRole(config)} className="btn-ghost !text-muted">
+                            <button onClick={() => {
+                                setRemoveError(null);
+                                setRoleToRemove(config);
+                              }}
+                              className="btn-ghost !text-muted">
                               Remove
                             </button>
                           )}
@@ -185,6 +198,21 @@ function RolesInner() {
             </p>
           </Card>
         </div>
+      )}
+      {roleToRemove && (
+        <ConfirmDialog
+          open
+          title="Remove this role?"
+          subject={{ name: roleToRemove.label }}
+          tone="danger"
+          confirmLabel="Remove role"
+          busyLabel="Removing…"
+          busy={removeBusy}
+          error={removeError}
+          onConfirm={handleDeleteRole}
+          onCancel={() => !removeBusy && setRoleToRemove(null)}
+          description="A role can only be removed when no exco has it. Its permission settings are deleted."
+        />
       )}
     </Page>
   );

@@ -228,6 +228,13 @@ export interface ExternalItemTotal {
   received: number;
 }
 
+/** One kind of item that has come in, from youths and outside supporters together. */
+export interface ReceivedItemLine {
+  name: string;
+  unit?: string; // only outside supporters give a unit
+  quantity: number;
+}
+
 export interface ContributionStats {
   /** Sum of every youth's pledge. External supporters never pledge. */
   totalPledged: number;
@@ -258,6 +265,14 @@ export interface ContributionStats {
    * "pledged" figure to compare against.
    */
   externalItemTotals: ExternalItemTotal[];
+  /** How many items youths pledged, added up across every item. */
+  itemsPledged: number;
+  /** How many items have come in: youths' pledged items received + everything outside supporters gave. */
+  itemsReceived: number;
+  /** Of itemsReceived, the part that came from outside supporters. */
+  itemsReceivedFromExternal: number;
+  /** What came in, item by item (largest first), for a short "Rice 2, Maggi 3 packs…" summary. */
+  receivedItemLines: ReceivedItemLine[];
 }
 
 export function computeStats(pledges: Pledge[], externalSupport: ExternalSupport[] = []): ContributionStats {
@@ -321,6 +336,28 @@ export function computeStats(pledges: Pledge[], externalSupport: ExternalSupport
   }
   const externalItemTotals = [...externalItemMap.values()].sort((a, b) => a.name.localeCompare(b.name));
 
+  // Counts are a plain number of items across all kinds (3 packs of Maggi
+  // + 2 bags of rice = 5), which is what a card needs to say "5 items
+  // received". The per-item tables above keep each kind apart.
+  const itemsPledged = itemTotals.reduce((sum, t) => sum + t.pledged, 0);
+  const itemsReceivedFromYouths = itemTotals.reduce((sum, t) => sum + t.received, 0);
+  const itemsReceivedFromExternal = externalItemTotals.reduce((sum, t) => sum + t.received, 0);
+  const itemsReceived = itemsReceivedFromYouths + itemsReceivedFromExternal;
+
+  const lineMap = new Map<string, ReceivedItemLine>();
+  const addLine = (name: string, unit: string | undefined, quantity: number) => {
+    if (quantity <= 0) return;
+    const key = `${name.trim().toLowerCase()}|${(unit ?? "").toLowerCase()}`;
+    const line = lineMap.get(key) ?? { name: name.trim(), unit, quantity: 0 };
+    line.quantity += quantity;
+    lineMap.set(key, line);
+  };
+  for (const t of itemTotals) addLine(t.name, undefined, t.received);
+  for (const t of externalItemTotals) addLine(t.name, t.unit, t.received);
+  const receivedItemLines = [...lineMap.values()].sort(
+    (a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name)
+  );
+
   const externalReceived = externalSupport.reduce((sum, s) => sum + s.amount, 0);
   const totalReceived = youthReceived + externalReceived;
 
@@ -338,6 +375,10 @@ export function computeStats(pledges: Pledge[], externalSupport: ExternalSupport
     percentReceived: totalPledged > 0 ? Math.round((totalReceived / totalPledged) * 100) : null,
     itemTotals,
     externalItemTotals,
+    itemsPledged,
+    itemsReceived,
+    itemsReceivedFromExternal,
+    receivedItemLines,
   };
 }
 

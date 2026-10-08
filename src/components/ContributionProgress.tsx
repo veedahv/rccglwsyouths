@@ -1,5 +1,5 @@
 import { Badge, Tone } from "./ui";
-import { naira } from "@/lib/format";
+import { formatQuantity, naira, pluralize } from "@/lib/format";
 import type { ContributionStats } from "@/lib/contributions";
 import {
   CONTRIBUTION_STATUS_LABEL,
@@ -77,5 +77,50 @@ export function ContributionLegend({ stats }: { stats: ContributionStats }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/** True when anything has been pledged or given as items. */
+export function hasItems(stats: ContributionStats): boolean {
+  return stats.itemsPledged > 0 || stats.itemsReceived > 0;
+}
+
+/**
+ * "12 of 20 pledged items received" plus a short breakdown of what has
+ * come in ("Rice 2, Maggi 3 packs, +2 more"). Shows nothing for a
+ * contribution that has no items at all, so money-only drives are unchanged.
+ */
+export function ItemsLine({
+  stats,
+  maxLines = 4,
+  className = "",
+}: {
+  stats: ContributionStats;
+  maxLines?: number;
+  className?: string;
+}) {
+  if (!hasItems(stats)) return null;
+  const { itemsPledged, itemsReceived, itemsReceivedFromExternal, receivedItemLines } = stats;
+  const shown = receivedItemLines.slice(0, maxLines);
+  const more = receivedItemLines.length - shown.length;
+
+  return (
+    <div className={`text-sm ${className}`}>
+      <p>
+        <span className="num font-semibold text-rccg-green-700">{formatQuantity(itemsReceived)}</span>{" "}
+        <span className="text-muted">
+          {itemsPledged > 0
+            ? `of ${pluralize(itemsPledged, "pledged item")} received`
+            : `${itemsReceived === 1 ? "item" : "items"} received`}
+          {itemsReceivedFromExternal > 0 && ` (${formatQuantity(itemsReceivedFromExternal)} from outside supporters)`}
+        </span>
+      </p>
+      {shown.length > 0 && (
+        <p className="mt-0.5 text-xs text-muted">
+          {shown.map((l) => `${l.name} ${formatQuantity(l.quantity)}${l.unit ? ` ${l.unit}` : ""}`).join(", ")}
+          {more > 0 && `, +${more} more`}
+        </p>
+      )}
+    </div>
   );
 }
