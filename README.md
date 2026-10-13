@@ -175,3 +175,88 @@ Then follow **"Required one-time setup"** above before signing in for the first 
 - **Note** on a new income/expense entry fills the Notes column (e.g. "For Youth Sanitation"). It's optional; older entries simply have none.
 - The ₦ sign is drawn as vector lines because jsPDF's built-in fonts don't include it.
 - Figures come from the app's data, so they always add up. The manual Q1 sample doesn't (see below), so don't expect a one-to-one match with it.
+
+## Game sessions (admin-run)
+
+A **Games** section in the sidebar lets an exco run game nights. Version 1 is
+admin-scored: the admin runs the session and taps a side to award points.
+Youths answering on their own phones is planned as a later feature.
+
+- **Games** (`/games`): past and live sessions, and the "New session" form.
+- **Run screen** (`/games/[id]`): shows the current round, reveals the
+  answer, awards or takes away points, controls the timer and hints, moves
+  between rounds and finishes the game.
+- **Big-screen view** (`/games/[id]/present`): a read-only screen for a
+  projector or TV. It follows the admin's screen live (Firestore realtime
+  listener), so open it on a second device signed in as any exco.
+- **Question bank** (`/games/questions`): add, edit and delete questions, add
+  many at once, load the starter set (about 120 scrambled words, 46
+  Scripture or Cap quotes, 37 emoji clues, 36 fill-in-the-blank verses, 21 Who Am I? people and a
+  30-clue quiz board), or clear questions for everything or for chosen
+  games. Loading the starter set twice is harmless.
+
+Games:
+
+- **Scrambled words** (any category), with an optional hint per word.
+- **Emoji Bible Trivia**: a few emojis are shown and the room guesses the Bible
+  story, character or miracle. Optional hint and reference. In the bulk-add
+  box use `emojis | answer | hint | reference`.
+- **Fill in the missing word**: a verse is shown with blank boxes and the room
+  fills them in. Type `___` where a word is missing and list the missing words
+  in order, separated by commas. The reveal shows the completed verse and its
+  reference. In the bulk-add box use `verse with ___ | missing words | reference`.
+  Starter verses follow common English translations, which differ slightly.
+- **Who Am I?**: clues about a Bible person are revealed one at a time, hardest
+  first. Round 1 of each person starts with one clue showing, and the admin
+  reveals the next clue when the room is stuck. Points are automatic: a guess
+  after the first clue is worth the most (as many points as there are clues)
+  and the value falls by one with every clue revealed, down to a minimum of 1.
+  In the bulk-add box use `answer | clue 1 | clue 2 | clue 3 ...` (hardest first).
+- **Quiz board** (a Jeopardy-style grid): categories across the top and point
+  levels down the side. When starting a session pick 2 to 6 categories and the
+  board gets one random clue for each point level in each one. The admin opens
+  a tile, the clue and countdown appear, and tapping a side awards the tile's
+  points (one winner per tile). "Wrong answer (lose points)" takes the tile's
+  points away from a side instead, and scores can go below zero. "Back to the
+  board" marks the tile as used and passes the pick to the next side (tap a
+  side on the board to change whose turn it is). The big-screen view shows the
+  board between clues. In the bulk-add box use `clue | answer | points | reference`.
+- **Scripture or Cap**: a quote is shown and players decide whether it is real
+  Scripture or Cap (a saying that is not in the Bible). The reveal shows the
+  book, chapter and verse for Scripture, or where the saying really comes from
+  for Cap. In the bulk-add box use `quote | scripture or cap | note`.
+
+Timer and hints:
+
+- When starting a session you set **seconds per round** (0 means no timer).
+  The countdown shows in the corner of the round on the run screen and the
+  big screen. The admin starts, pauses, resumes and resets it. It resets on
+  every new round and starts straight away when you move to the next round
+  (the first round waits for you to press Start). Awarding points or revealing
+  the answer pauses it.
+  Screens stay in step without relying on each device's clock.
+- For games that have hints (scrambled words, emoji trivia and fill in the missing
+  word), **Show hints**
+  is chosen at set-up and can be toggled during the game ("Hide hints"). The admin still sees the hint privately.
+
+Ways to group players: **Boys vs Girls**, **Team vs Team** (2 to 4 teams, dealt
+randomly or assigned by hand), **1 vs 1**, **Selected youths** and **Random
+draw**. Guests (people not on the youths list) can be added in every mode
+that lists players.
+
+How it is stored:
+
+- `/gameQuestions/{id}`: the question bank.
+- `/gameSessions/{id}`: one document per session, with its sides, a frozen
+  copy of each round's question, the points awarded per round, and the timer
+  and hint settings. Editing or clearing the question bank never changes a
+  game that was already played.
+
+Permissions: any exco can read the bank and watch a session. Creating and
+running sessions and editing the bank use the existing `canEditEvents`
+permission. To give games their own permission later, add it to `Permissions`
+and swap the two `canEditEvents` checks in `firestore.rules` and the
+`hasPermission("canEditEvents")` calls under `src/app/games`.
+
+**Deploy the new rules**: copy the updated `firestore.rules` into the Firebase
+console (or `firebase deploy --only firestore:rules`). No new index is needed.

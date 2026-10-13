@@ -175,6 +175,21 @@ service cloud.firestore {
       }
     }
 
+    // Game nights. Any exco can read the question bank and watch a session
+    // (including the big-screen view); creating sessions, running them
+    // (awarding points) and editing the question bank need canEditEvents,
+    // the same as events. Sessions keep their own frozen copy of each
+    // question, so editing the bank never changes a game already played.
+    match /gameQuestions/{questionId} {
+      allow read: if isExco();
+      allow write: if hasPermission('canEditEvents');
+    }
+
+    match /gameSessions/{sessionId} {
+      allow read: if isExco();
+      allow write: if hasPermission('canEditEvents');
+    }
+
     // Yearly planner. Any exco can SUGGEST a programme and edit or remove
     // their own while it's still just a suggestion; approving, declining,
     // editing anyone's, and creating the event from it need canEditEvents.
