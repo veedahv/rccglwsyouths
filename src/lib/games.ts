@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   addDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   getDoc,
@@ -446,8 +447,10 @@ export async function createSession(data: {
   board?: { categories: string[]; values: number[] }; // quiz board only
 }): Promise<string> {
   const { board, ...rest } = data;
+  const overlayKey = newOverlayKey();
   const session: Omit<GameSession, "id"> = {
     ...rest,
+    overlayKey,
     // A quiz board opens on the board itself (-1); every other game opens on round 1.
     currentRound: board ? -1 : 0,
     ...(board ? { boardCategories: board.categories, boardValues: board.values, turnIndex: 0 } : {}),
@@ -461,6 +464,11 @@ export async function createSession(data: {
     createdAt: new Date().toISOString(),
   };
   const ref = await addDoc(collection(db, "gameSessions"), clean(session));
+  try {
+    await writeOverlay(overlayKey, { id: ref.id, ...session });
+  } catch {
+    // The run screen has a "Resync overlay" button if this didn't go through.
+  }
   return ref.id;
 }
 
@@ -468,8 +476,103 @@ export async function updateSession(id: string, data: Partial<Omit<GameSession, 
   await updateDoc(doc(db, "gameSessions", id), clean(data));
 }
 
-export async function deleteSession(id: string): Promise<void> {
-  await deleteDoc(doc(db, "gameSessions", id));
+export async function deleteSession(session: Pick<GameSession, "id" | "overlayKey">): Promise<void> {
+  await deleteDoc(doc(db, "gameSessions", session.id));
+  // The overlay link stops working as soon as its session is deleted.
+  if (session.overlayKey) {
+    try {
+      await deleteDoc(doc(db, "gameOverlays", session.overlayKey));
+    } catch {
+      // Not worth failing the delete over.
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* OBS overlay                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A copy of the session that is safe to show to anyone holding the overlay
+ * link: only what is on screen right now. Upcoming questions and answers are
+ * blanked, and the current answer, hint and unrevealed clues stay hidden until
+ * the admin reveals them. It keeps the shape of a session so the same display
+ * components can draw it.
+ */
+export function redactForDisplay(session: GameSession): GameSession {
+  const cluesShown = session.cluesShown ?? 1;
+  const rounds: GameRound[] = session.rounds.map((r, i) => {
+    const out: GameRound = {
+      questionId: r.questionId,
+      category: r.category,
+      prompt: "",
+      answer: "",
+      awards: r.awards,
+      value: r.value,
+      played: r.played,
+    };
+    if (i !== session.currentRound || session.status === "finished") return out;
+    out.prompt = r.prompt;
+    if (session.showHints !== false) out.hint = r.hint;
+    if (r.clues) out.clues = r.clues.map((c, idx) => (idx < cluesShown ? c : ""));
+    if (session.revealed) {
+      out.answer = r.answer;
+      out.completed = r.completed;
+      out.reference = r.reference;
+      out.explanation = r.explanation;
+    }
+    return out;
+  });
+  return { ...session, rounds, createdBy: "", overlayKey: undefined };
+}
+
+export function newOverlayKey(): string {
+  // An auto-generated Firestore ID is 20 random characters, so it can't be guessed.
+  return doc(collection(db, "gameOverlays")).id;
+}
+
+async function writeOverlay(key: string, session: GameSession): Promise<void> {
+  await setDoc(doc(db, "gameOverlays", key), clean(redactForDisplay(session)));
+}
+
+/**
+ * Saves a change to a session, then refreshes its overlay. The overlay is
+ * written separately on purpose: if it fails (for example the new Firestore
+ * rules aren't deployed yet) the game itself keeps working.
+ */
+export async function saveSessionChange(
+  current: GameSession,
+  data: Partial<Omit<GameSession, "id">>
+): Promise<{ overlayOk: boolean }> {
+  await updateSession(current.id, data);
+  if (!current.overlayKey) return { overlayOk: true };
+  try {
+    await writeOverlay(current.overlayKey, { ...current, ...data });
+    return { overlayOk: true };
+  } catch {
+    return { overlayOk: false };
+  }
+}
+
+/** Creates the overlay for a session that doesn't have one yet, or re-sends the current state. Returns its key. */
+export async function syncOverlay(session: GameSession): Promise<string> {
+  const key = session.overlayKey ?? newOverlayKey();
+  if (!session.overlayKey) await updateSession(session.id, { overlayKey: key });
+  await writeOverlay(key, { ...session, overlayKey: key });
+  return key;
+}
+
+/** Live updates for the overlay page. It needs no sign-in. */
+export function subscribeOverlay(
+  key: string,
+  onChange: (session: GameSession | null) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    doc(db, "gameOverlays", key),
+    (snap) => onChange(snap.exists() ? (snap.data() as GameSession) : null),
+    (err) => onError?.(err)
+  );
 }
 
 /** Saves a session's rounds (points awarded live inside each round). */

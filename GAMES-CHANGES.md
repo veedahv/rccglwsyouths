@@ -15,6 +15,7 @@ NEW
 - src/app/games/[id]/page.tsx
 - src/app/games/[id]/present/page.tsx
 - src/app/games/questions/page.tsx
+- src/app/overlay/[key]/page.tsx   (the OBS overlay; needs no sign-in)
 
 MODIFIED (small edits, safe to diff)
 - src/components/icons.tsx      (adds GamesIcon at the end)
@@ -22,7 +23,13 @@ MODIFIED (small edits, safe to diff)
 - firestore.rules               (adds gameQuestions and gameSessions rules; deploy them)
 - README.md                     (adds a "Game sessions" section at the end)
 
-This update (Who Am I? and the Quiz board)
+This update (OBS overlay)
+- A private overlay link per session for OBS Browser Sources (transparent, no sign-in). Links and set-up steps are on the run screen under "Record or stream with OBS".
+- The overlay only ever holds what is on screen: unrevealed answers, hints and clues are never sent to it.
+- IMPORTANT: deploy the updated firestore.rules (new gameOverlays rule), or the overlay stays blank.
+- Sessions made earlier get a "Create overlay link" button.
+
+Previous update (Who Am I? and the Quiz board)
 - Who Am I?: clues revealed one at a time, automatic points that fall with each clue (21 starter people).
 - Quiz board (Jeopardy-style): pick 2 to 6 categories, tiles by point level, turns, penalties for wrong answers, board shown on the big screen (30 starter clues in 6 categories).
 - Hints stay available for scrambled words, emoji trivia and fill in the missing word only.

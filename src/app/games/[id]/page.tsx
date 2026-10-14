@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { subscribeSession, updateSession, whoAmIPoints } from "@/lib/games";
+import { saveSessionChange, subscribeSession, syncOverlay, whoAmIPoints } from "@/lib/games";
 import { useRoundTimer } from "@/lib/useRoundTimer";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
@@ -13,6 +13,93 @@ import { GAME_LABEL, MODE_LABEL, gameHasHints } from "@/types/games";
 import type { GameSession } from "@/types/games";
 
 const POINT_OPTIONS = [1, 2, 3, 5];
+
+const OVERLAY_LINKS = [
+  { label: "All in one", hint: "Round card, timer and scores together.", query: "" },
+  { label: "Round card only", hint: "The question or board. The timer sits in its corner.", query: "?show=round" },
+  { label: "Scores only", hint: "A slim row of score pills.", query: "?show=scores" },
+  { label: "Timer only", hint: "Just the countdown, to place anywhere.", query: "?show=timer" },
+];
+
+/** Links and instructions for putting this session on video in OBS. */
+function ObsCard({ session, busy, onSync }: { session: GameSession; busy: boolean; onSync: () => void }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const base = session.overlayKey && typeof window !== "undefined" ? `${window.location.origin}/overlay/${session.overlayKey}` : null;
+
+  async function copy(label: string, url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(label);
+      setTimeout(() => setCopied((c) => (c === label ? null : c)), 2000);
+    } catch {
+      // Clipboard can be blocked; the link is selectable in the box.
+    }
+  }
+
+  return (
+    <Card
+      title="Record or stream with OBS"
+      description="Private links that show this game on your video. They need no sign-in, and they only ever show what is on screen right now."
+      className="mt-6"
+    >
+      {!base ? (
+        <div className="space-y-2">
+          <p className="text-sm text-muted">This session was created before overlays existed. Create its overlay link to use it in OBS.</p>
+          <button disabled={busy} onClick={onSync} className="btn-secondary">
+            Create overlay link
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <ul className="space-y-3">
+            {OVERLAY_LINKS.map(({ label, hint, query }) => {
+              const url = base + query;
+              return (
+                <li key={label}>
+                  <p className="text-sm font-medium">
+                    {label} <span className="font-normal text-muted">· {hint}</span>
+                  </p>
+                  <div className="mt-1 flex gap-2">
+                    <input readOnly value={url} onFocus={(e) => e.currentTarget.select()} aria-label={`${label} link`} className="input font-mono text-xs" />
+                    <button type="button" onClick={() => copy(label, url)} className="btn-secondary shrink-0">
+                      {copied === label ? "Copied" : "Copy"}
+                    </button>
+                    <a href={url} target="_blank" rel="noreferrer" className="btn-ghost shrink-0">
+                      Preview
+                    </a>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          <details className="rounded-lg border border-line bg-white p-3 text-sm">
+            <summary className="cursor-pointer font-medium">How to set it up in OBS</summary>
+            <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-muted">
+              <li>In OBS, add a source: <span className="text-ink">Browser</span>. Paste a link above.</li>
+              <li>Set Width to <span className="text-ink">1920</span> and Height to <span className="text-ink">1080</span>. Leave the custom CSS as it is.</li>
+              <li>Untick <span className="text-ink">Shutdown source when not visible</span> and <span className="text-ink">Refresh browser when scene becomes active</span> so it stays live between scenes.</li>
+              <li>Put it above your camera in the scene. The page is transparent, so only the card and scores show.</li>
+              <li>Run the game from this page on your phone or another device. The overlay follows every tap within a moment.</li>
+            </ol>
+            <p className="mt-3 text-muted">
+              Add <code>&amp;position=top</code> or <code>&amp;position=center</code> to move it, <code>&amp;size=compact</code> for a smaller
+              card, or <code>&amp;scale=0.8</code> to shrink everything. If your camera lags behind the graphics (phone webcams often do),
+              add a <span className="text-ink">Render Delay</span> filter to the overlay source and match the delay.
+            </p>
+          </details>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button disabled={busy} onClick={onSync} className="btn-ghost btn-sm">
+              Resync overlay
+            </button>
+            <p className="text-xs text-muted">Anyone with a link can see what is on screen, so keep it to yourself. Deleting the session turns its links off.</p>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 function RunInner() {
   const { id } = useParams<{ id: string }>();
@@ -25,6 +112,7 @@ function RunInner() {
   const [pointValue, setPointValue] = useState(1);
   const [takeAway, setTakeAway] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [overlayProblem, setOverlayProblem] = useState(false);
   const timer = useRoundTimer(session);
 
   useEffect(() => {
@@ -47,7 +135,8 @@ function RunInner() {
     setBusy(true);
     setError(null);
     try {
-      await updateSession(session.id, data);
+      const { overlayOk } = await saveSessionChange(session, data);
+      setOverlayProblem(!overlayOk);
     } catch {
       setError("That change didn't save. Check your connection and try again.");
     } finally {
@@ -74,6 +163,21 @@ function RunInner() {
   /** Fields that stop a running timer, to merge into another change (awarding points, revealing). */
   function pauseIfRunning() {
     return timer.state === "running" ? timerFields("paused", timer.remaining) : {};
+  }
+
+  async function handleSyncOverlay() {
+    if (!session) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await syncOverlay(session);
+      setOverlayProblem(false);
+    } catch {
+      setOverlayProblem(true);
+      setError("Couldn't update the overlay. Check that the new Firestore rules are deployed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (loading) {
@@ -214,6 +318,12 @@ function RunInner() {
       {error && (
         <Notice tone="error" className="mb-4">
           {error}
+        </Notice>
+      )}
+      {overlayProblem && canControl && (
+        <Notice tone="warning" className="mb-4">
+          The game is fine, but the OBS overlay didn&rsquo;t update. Check that the new Firestore rules (gameOverlays) are
+          deployed, then use &ldquo;Resync overlay&rdquo; at the bottom of this page.
         </Notice>
       )}
       {!canControl && (
@@ -399,6 +509,9 @@ function RunInner() {
             </div>
           )}
         </div>
+      )}
+      {canControl && (
+        <ObsCard session={session} busy={busy} onSync={handleSyncOverlay} />
       )}
     </Page>
   );

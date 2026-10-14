@@ -190,6 +190,17 @@ service cloud.firestore {
       allow write: if hasPermission('canEditEvents');
     }
 
+    // The OBS overlay. Each session has one of these, named with a long random
+    // ID that works like a private link. Anyone holding the link can read that
+    // one document without signing in (OBS cannot sign in), but nobody can list
+    // them. It only ever holds what is on screen at that moment (the app blanks
+    // upcoming questions and unrevealed answers before saving it).
+    match /gameOverlays/{overlayKey} {
+      allow get: if true;
+      allow list: if false;
+      allow write: if hasPermission('canEditEvents');
+    }
+
     // Yearly planner. Any exco can SUGGEST a programme and edit or remove
     // their own while it's still just a suggestion; approving, declining,
     // editing anyone's, and creating the event from it need canEditEvents.

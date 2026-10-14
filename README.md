@@ -260,3 +260,49 @@ and swap the two `canEditEvents` checks in `firestore.rules` and the
 
 **Deploy the new rules**: copy the updated `firestore.rules` into the Firebase
 console (or `firebase deploy --only firestore:rules`). No new index is needed.
+
+## Recording and streaming with OBS
+
+Every game session has a private **overlay** link for OBS. On the run screen
+(`/games/[id]`), the "Record or stream with OBS" card lists the links.
+
+How it works: OBS's Browser Source can't sign in to the platform, so each
+session gets its own overlay document in `/gameOverlays/{key}`. The key is a
+long random ID that works as the private link, and it can be read without
+signing in (but never listed). The run screen refreshes that document after
+every tap, and the overlay page listens to it live, so the video graphics stay
+in step with the admin's screen. The document only ever holds what is on screen
+at that moment: upcoming questions and answers are blanked, and the current
+answer, hint and any unrevealed Who Am I? clues stay hidden until the admin
+reveals them. Deleting a session deletes its overlay.
+
+Links (add each as a Browser Source, 1920 x 1080):
+
+- `/overlay/KEY`: round card, timer and scores together.
+- `/overlay/KEY?show=round`: the question or board only (the timer sits in its corner).
+- `/overlay/KEY?show=scores`: a slim row of score pills.
+- `/overlay/KEY?show=timer`: only the countdown.
+
+Options: `&position=top|center|bottom` (default bottom), `&size=compact`, and
+`&scale=0.8` (anything from 0.5 to 2).
+
+Suggested OBS setup:
+
+- **Game scene**: your camera (or a phone used as a webcam through an app such as
+  DroidCam or Iriun) with the overlay Browser Source above it. Untick "Shutdown
+  source when not visible" and "Refresh browser when scene becomes active" so it
+  stays live.
+- **Worship scene**: capture EasyWorship's output with Display Capture (when it
+  outputs to a second screen) or Window Capture, and switch between scenes in OBS.
+- **If the camera lags** behind the graphics, add a **Render Delay** filter to the
+  overlay source and match the delay.
+- A phone that records on its own can't receive the live graphics. Use the OBS
+  recording as the main video and the phone as an extra angle, and clap at the
+  start so the two line up when editing.
+- Run the game from the run screen on a phone or tablet. OBS doesn't need to be
+  signed in to anything.
+
+**Deploy the updated `firestore.rules`.** Without the `gameOverlays` rule the
+overlay stays blank (the game itself keeps working, and the run screen warns
+you). For a session made before overlays existed, use "Create overlay link" on
+its run screen.

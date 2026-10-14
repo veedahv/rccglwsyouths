@@ -76,7 +76,7 @@ function GamesInner() {
   async function handleDelete(s: GameSession) {
     if (!window.confirm(`Delete “${s.title}”? Its scores will be gone.`)) return;
     try {
-      await deleteSession(s.id);
+      await deleteSession(s);
       setSessions((prev) => prev.filter((x) => x.id !== s.id));
     } catch {
       setError("Couldn't delete that session.");

@@ -149,7 +149,8 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
     router.push("/login");
   }
 
-  if (loading || !user || !exco) {
+  // The OBS overlay (/overlay/...) is always shown bare, even if someone is signed in.
+  if (loading || !user || !exco || pathname.startsWith("/overlay")) {
     return <>{children}</>;
   }
 

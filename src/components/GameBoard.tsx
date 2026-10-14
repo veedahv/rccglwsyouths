@@ -36,7 +36,7 @@ function formatClock(totalSeconds: number): string {
 }
 
 /** The countdown, shown in the corner of the round. */
-export function TimerBadge({ timer, large }: { timer: RoundTimer; large?: boolean }) {
+export function TimerBadge({ timer, large, inline }: { timer: RoundTimer; large?: boolean; inline?: boolean }) {
   const over = timer.state !== "idle" && timer.remaining <= 0;
   const idle = timer.state === "idle";
   const low = !idle && timer.remaining <= 10;
@@ -52,7 +52,8 @@ export function TimerBadge({ timer, large }: { timer: RoundTimer; large?: boolea
       role="timer"
       aria-label={over ? "Time is up" : `${formatClock(timer.remaining)} left`}
       className={[
-        "absolute right-0 top-0 rounded-xl border font-display font-bold tabular-nums",
+        inline ? "inline-block" : "absolute right-0 top-0",
+        "rounded-xl border font-display font-bold tabular-nums",
         large ? "px-5 py-2 text-5xl" : "px-3 py-1 text-xl",
         tone,
         timer.state === "paused" ? "opacity-70" : "",
@@ -372,5 +373,36 @@ export function QuizBoard({
         )}
       </div>
     </div>
+  );
+}
+
+/** A slim row of score pills, made for sitting along the edge of a video. */
+export function ScoreStrip({ session, large }: { session: GameSession; large?: boolean }) {
+  const ranked = rankSides(session);
+  const best = ranked[0]?.points ?? 0;
+  const pointsOf = new Map(ranked.map((r) => [r.side.id, r.points]));
+  const pickerId = session.game === "board" ? session.sides[session.turnIndex ?? 0]?.id : undefined;
+
+  return (
+    <ul className="flex flex-wrap justify-center gap-3">
+      {session.sides.map((side) => {
+        const points = pointsOf.get(side.id) ?? 0;
+        const leading = best > 0 && points === best;
+        return (
+          <li
+            key={side.id}
+            className={[
+              "flex items-center gap-3 rounded-full bg-rccg-purple-800 text-white shadow-md",
+              large ? "px-6 py-2.5 text-3xl" : "px-4 py-1.5 text-lg",
+              leading ? "ring-4 ring-rccg-green-500" : "",
+            ].join(" ")}
+          >
+            {pickerId === side.id && <span aria-label="Picks next">▶</span>}
+            <span className="max-w-[14ch] truncate font-display font-semibold">{side.name}</span>
+            <span className="num rounded-full bg-white px-3 font-display font-bold text-rccg-purple-800">{points}</span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

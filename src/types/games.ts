@@ -117,6 +117,7 @@ export interface GameSession {
   boardCategories?: string[]; // board: column order
   boardValues?: number[]; // board: row order (smallest first)
   turnIndex?: number; // board: index of the side that picks the next tile
+  overlayKey?: string; // private ID of this session's OBS overlay (see /overlay/[key])
   showHints?: boolean; // show each round's hint on screen where a game has hints (default true)
   // Round timer. timerSeconds is the limit set when the session was started
   // (0 or missing means no timer). The rest is the live state: the seconds
