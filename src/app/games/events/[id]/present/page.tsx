@@ -6,6 +6,7 @@ import Link from "next/link";
 import { subscribeEvent, subscribeEventSessions, summarizeEvent } from "@/lib/gameEvents";
 import { useRoundTimer } from "@/lib/useRoundTimer";
 import RequireAuth from "@/components/RequireAuth";
+import FullscreenButton from "@/components/FullscreenButton";
 import PresentFrame from "@/components/PresentFrame";
 import { EventResult } from "@/components/ResultCard";
 import { EventCover, OverallBoard, SessionBigScreen } from "@/components/EventScreens";
@@ -65,9 +66,12 @@ function PresentInner() {
     return (
       <div className="fixed inset-0 z-50">
         <EventCover event={event} />
-        <Link href={`/games/events/${event.id}`} className="absolute right-4 top-6 z-20 text-sm text-white/40 hover:text-white">
-          Exit
-        </Link>
+        <div className="absolute right-4 top-6 z-20 flex items-center gap-3">
+          <FullscreenButton tone="dark" />
+          <Link href={`/games/events/${event.id}`} className="text-sm text-white/40 hover:text-white">
+            Exit
+          </Link>
+        </div>
       </div>
     );
   }

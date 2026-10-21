@@ -16,7 +16,7 @@ export function teaserEnded(run: TeaserRun, timer: { enabled: boolean; state: st
  * The big screen for a teaser: the prompt, one timer for the whole game and the
  * numbered slots. Unnamed answers stay hidden until the game is over.
  */
-export default function TeaserScreen({ run, exitHref }: { run: TeaserRun; exitHref: string }) {
+export default function TeaserScreen({ run, exitHref }: { run: TeaserRun; exitHref?: string }) {
   const timer = useRoundTimer(run);
   const flash = useFlash(run);
   const ended = teaserEnded(run, timer);

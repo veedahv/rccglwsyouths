@@ -370,7 +370,9 @@ function RunInner() {
 
   const onEventScreen = !!event && event.view === "game" && event.activeSessionId === session.id;
   const backHref = session.eventId ? `/games/events/${session.eventId}` : "/games";
-  const presentHref = session.eventId ? `/games/events/${session.eventId}/present` : `/games/${session.id}/present`;
+  const presentHref = session.eventId
+    ? event?.overlayKey ? `/screen/${event.overlayKey}` : `/games/events/${session.eventId}/present`
+    : session.overlayKey ? `/screen/${session.overlayKey}` : `/games/${session.id}/present`;
 
   const hasAwards = Object.values(awarded).some((n) => n !== 0);
 

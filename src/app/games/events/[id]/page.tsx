@@ -231,7 +231,7 @@ function EventInner() {
             <Badge tone={event.status === "finished" ? "gray" : "green"} dot={event.status !== "finished"}>
               {event.status === "finished" ? "Finished" : "Live"}
             </Badge>
-            <Link href={`/games/events/${event.id}/present`} target="_blank" className="btn-secondary">
+            <Link href={event.overlayKey ? `/screen/${event.overlayKey}` : `/games/events/${event.id}/present`} target="_blank" className="btn-secondary">
               Open big-screen view
             </Link>
           </>

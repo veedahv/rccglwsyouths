@@ -1,3 +1,4 @@
+import type { TeaserRun } from "@/types/teasers";
 // Game sessions: an admin runs a game night, picks who is playing and how
 // they are grouped, and awards points round by round (version 1 is
 // admin-scored; youths answering on their own phones is a later feature).
@@ -176,6 +177,8 @@ export interface GameSession {
   passes?: number; // turn by turn: how many sides have missed the current round. Once above 0, points are halved.
   // The games event this game belongs to (see GameEvent). Missing on a stand-alone session.
   eventId?: string;
+  /** Saved with the copy on the public screen so it can show the event's name without reading the event. */
+  eventTitle?: string;
   // Private ID of this session's OBS overlay (see /overlay/[key]). A game inside an
   // event has none of its own: only the game on screen holds the event's overlay key.
   overlayKey?: string;
@@ -278,11 +281,16 @@ export interface EventOverlay {
   subtitle?: string;
   venue?: string;
   plannedGames: GameKind[];
+  hosts?: string[];
   summary: EventSummary;
 }
 
 /** An overlay document is either a game (redacted) or the event's own screen. */
-export type OverlayDoc = GameSession | EventOverlay;
+export type OverlayDoc = GameSession | EventOverlay | TeaserRun;
+
+export function isTeaserOverlay(doc: OverlayDoc): doc is TeaserRun {
+  return (doc as TeaserRun).kind === "teaser";
+}
 
 export function isEventOverlay(doc: OverlayDoc): doc is EventOverlay {
   return (doc as EventOverlay).kind === "event";

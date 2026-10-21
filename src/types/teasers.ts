@@ -66,6 +66,8 @@ export interface TeaserRun {
   timerRemaining: number;
   timerSeq: number;
   flash?: TeaserFlash;
+  /** The private key of its public big-screen link (/screen/[key]). */
+  overlayKey?: string;
   createdBy: string;
   createdAt: string;
 }

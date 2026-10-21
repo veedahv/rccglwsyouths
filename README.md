@@ -238,7 +238,7 @@ Quick warm-up games, 60 to 90 seconds each, for random people: no teams, points 
 - **Playing** (`/games/play/[id]`): the host starts the clock and taps each answer as it is shouted; it fills the next numbered slot on the **big screen** (`/games/play/[id]/present`). An answer already named gives an "Already named" nudge, and one that isn't on the list shakes the slots, filling nothing. One timer covers the whole game. At the end (time up, all named, or "Reveal what's left") the unnamed slots are revealed. The host can type who got each answer.
 - **Two pickers**: a **book grid** (all 66 books, Old and New Testament, grouped, with a filter; numbered books like 1 John are separate from John), and a **list picker** (tap an answer, or type it and press Enter; typed answers match aliases such as Didymus for Thomas). Teasers can set "how many must be named" for open-ended ones (name 5 miracles from a long list).
 - **Disputed lists** use aliases and wrong options: both Jameses accept "James", Thomas accepts Didymus, the fruit of the Spirit accepts either translation's wording.
-- Data: `/gameTeasers/{id}` (the teasers) and `/gameRuns/{id}` (one play; `kind: "teaser"`). The run's `kind` decides which host controls and big-screen view load, so other kinds of game can plug in later (add a case in `games/play/[id]/page.tsx` and `.../present/page.tsx`). Teasers don't have an OBS overlay yet.
+- Data: `/gameTeasers/{id}` (the teasers) and `/gameRuns/{id}` (one play; `kind: "teaser"`). The run's `kind` decides which host controls and big-screen view load, so other kinds of game can plug in later (add a case in `games/play/[id]/page.tsx` and `.../present/page.tsx`). Teasers have a public big screen (`/screen/[key]`, no sign-in) but no OBS graphics yet. The public copy leaves the answers out until the game is finished, and the host page finishes the game when the clock runs out.
 - **Deploy the updated `firestore.rules`** (new `gameTeasers` and `gameRuns` rules).
 
 ### Attendance, hosts and how to play
@@ -379,3 +379,9 @@ its run screen.
 ## Result screens and confetti
 
 Finished games and events now show one result card (winner, ranked bars, scores) on the present screen and the OBS overlay, with confetti when there is a winner. The overlay no longer repeats the score strip under a finished game. Add `&confetti=off` to an overlay URL to turn the confetti off. Confetti is hidden for visitors who prefer reduced motion.
+
+## Public big screen and fullscreen
+
+The big screen now lives at `/screen/[key]`, using the same private key as the OBS overlay (`/overlay/[key]`). It needs no sign-in, so it can be opened on any device or an extended display. It reads the same redacted overlay document, so upcoming questions and face-down cards are never exposed. One link covers a whole games event: cover, each game, standings and final. The "Open big screen" buttons now point there. The old signed-in `/present` pages remain only as a fallback for sessions that have no overlay key. Press **F** or use the button in the header (or on the cover) for fullscreen. Games already on screen pick up the event name and hosts after the next change, or after "Resync overlay" on the event page.
+
+Teaser runs now carry an `overlayKey` and mirror (redacted) to `/gameOverlays/{key}` on every change, so `/screen/[key]` works for teasers too. Older runs get their key the first time the host opens them. No new Firestore rules are needed.

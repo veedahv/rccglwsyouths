@@ -8,7 +8,7 @@ import { GameTag, RoundView, ScoreStrip, TimerBadge } from "@/components/GameBoa
 import { EventTag } from "@/components/EventScreens";
 import { EventResult, GameResult } from "@/components/ResultCard";
 import { BoardOverlay, CoupleOverlay } from "@/components/OverlayViews";
-import { hasStarted, isEventOverlay } from "@/types/games";
+import { hasStarted, isEventOverlay, isTeaserOverlay } from "@/types/games";
 import type { OverlayDoc } from "@/types/games";
 
 // The graphics layer for OBS (add it as a Browser Source). It needs no
@@ -65,7 +65,8 @@ export default function OverlayPage() {
   const [error, setError] = useState(false);
   const [opts, setOpts] = useState<Options>(DEFAULTS);
   const event = doc && isEventOverlay(doc) ? doc : null;
-  const session = doc && !isEventOverlay(doc) ? doc : null;
+  // Teasers have a public big screen (/screen/...) but no OBS graphics yet, so they draw nothing here.
+  const session = doc && !isEventOverlay(doc) && !isTeaserOverlay(doc) ? doc : null;
   const timer = useRoundTimer(session);
 
   useEffect(() => {

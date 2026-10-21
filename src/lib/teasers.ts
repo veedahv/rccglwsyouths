@@ -7,10 +7,12 @@ import {
   onSnapshot,
   orderBy,
   query,
+  setDoc,
   updateDoc,
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { newOverlayKey } from "./games";
 import { BIBLE_BOOKS, booksWhere } from "./bibleBooks";
 import type { Teaser, TeaserAnswer, TeaserFlash, TeaserRun, TeaserSlot } from "@/types/teasers";
 
@@ -172,7 +174,7 @@ const STARTER: Omit<Teaser, "id" | "createdAt">[] = [
     prompt: "Name 9 books of the Bible with only 4 letters",
     picker: "books",
     answers: asAnswers(booksWhere((b) => b.name.length === 4)),
-    seconds: 60,
+    seconds: 75,
   },
   {
     title: "Books starting with J",
@@ -186,7 +188,7 @@ const STARTER: Omit<Teaser, "id" | "createdAt">[] = [
     prompt: "Name the 12 minor prophets",
     picker: "books",
     answers: asAnswers(booksWhere((b) => b.group === "Minor prophets")),
-    seconds: 90,
+    seconds: 75,
   },
   {
     title: "The 12 disciples",
@@ -207,7 +209,7 @@ const STARTER: Omit<Teaser, "id" | "createdAt">[] = [
       { name: "Judas Iscariot", aliases: ["Judas"] },
     ],
     distractors: ["Paul", "Barnabas", "Matthias", "Mark", "Luke", "Timothy"],
-    seconds: 90,
+    seconds: 60,
   },
   {
     title: "Fruit of the Spirit",
@@ -264,10 +266,12 @@ export async function createTeaserRun(teaser: Teaser, createdBy: string): Promis
     timerState: "idle",
     timerRemaining: teaser.seconds,
     timerSeq: 0,
+    overlayKey: newOverlayKey(),
     createdBy,
     createdAt: new Date().toISOString(),
   };
   const ref = await addDoc(collection(db, "gameRuns"), clean(run));
+  await writeRunOverlay({ id: ref.id, ...run });
   return ref.id;
 }
 
@@ -283,12 +287,54 @@ export function subscribeRun(
   );
 }
 
-export async function updateRun(id: string, data: Partial<Omit<TeaserRun, "id">>): Promise<void> {
-  await updateDoc(doc(db, "gameRuns", id), clean(data));
+/**
+ * What the public screen is allowed to hold: the answers are left out until the game is
+ * finished, so nobody can read them ahead of time from the link.
+ */
+export function redactRun(run: TeaserRun): TeaserRun {
+  return {
+    ...run,
+    answers: run.status === "finished" ? run.answers : [],
+    distractors: undefined,
+    createdBy: "",
+    overlayKey: undefined,
+  };
 }
 
-export async function deleteRun(id: string): Promise<void> {
-  await deleteDoc(doc(db, "gameRuns", id));
+/** Copies the game to its public screen link. A failure here never stops the game itself. */
+export async function writeRunOverlay(run: TeaserRun): Promise<boolean> {
+  if (!run.overlayKey) return true;
+  try {
+    await setDoc(doc(db, "gameOverlays", run.overlayKey), clean(redactRun(run)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Saves a change and sends the result to the public screen. Pass the run as it was before the change. */
+export async function updateRun(id: string, data: Partial<Omit<TeaserRun, "id">>, current?: TeaserRun): Promise<void> {
+  await updateDoc(doc(db, "gameRuns", id), clean(data));
+  if (current) await writeRunOverlay({ ...current, ...data });
+}
+
+/** Gives an older game (made before public screens) its link. */
+export async function ensureRunOverlay(run: TeaserRun): Promise<string> {
+  if (run.overlayKey) return run.overlayKey;
+  const overlayKey = newOverlayKey();
+  await updateRun(run.id, { overlayKey }, { ...run, overlayKey });
+  return overlayKey;
+}
+
+export async function deleteRun(run: Pick<TeaserRun, "id" | "overlayKey">): Promise<void> {
+  await deleteDoc(doc(db, "gameRuns", run.id));
+  if (run.overlayKey) {
+    try {
+      await deleteDoc(doc(db, "gameOverlays", run.overlayKey));
+    } catch {
+      // Not worth failing the delete over.
+    }
+  }
 }
 
 export { BIBLE_BOOKS };

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { CoverDecor } from "@/components/EventScreens";
+import FullscreenButton from "@/components/FullscreenButton";
 
 /**
  * The frame every big-screen page sits in: the green, gold and red stripe from the poster,
@@ -18,7 +19,8 @@ export default function PresentFrame({
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
-  exitHref: string;
+  /** Where Exit goes. Left out on the public screen, where there is nothing to go back to. */
+  exitHref?: string;
   right?: ReactNode;
   children: ReactNode;
 }) {
@@ -42,9 +44,12 @@ export default function PresentFrame({
           </div>
           <div className="flex shrink-0 items-center gap-4">
             {right}
-            <Link href={exitHref} className="text-sm text-white/50 hover:text-white">
-              Exit
-            </Link>
+            <FullscreenButton />
+            {exitHref && (
+              <Link href={exitHref} className="text-sm text-white/50 hover:text-white">
+                Exit
+              </Link>
+            )}
           </div>
         </header>
         {children}

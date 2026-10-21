@@ -201,6 +201,7 @@ function overlayFor(event: GameEvent, view: "cover" | "standings" | "final", ses
     subtitle: event.subtitle,
     venue: event.venue,
     plannedGames: event.plannedGames,
+    hosts: event.hosts?.map((h) => h.name),
     summary: summarizeEvent(sessions),
   };
 }
@@ -269,7 +270,7 @@ export async function writeEventOverlay(event: GameEvent, sessions?: GameSession
     const all = sessions ?? (await fetchEventSessions(event.id));
     const active = event.view === "game" ? all.find((s) => s.id === event.activeSessionId) : undefined;
     if (active) {
-      await writeOverlay(event.overlayKey, { ...active, overlayKey: event.overlayKey });
+      await writeOverlay(event.overlayKey, { ...active, overlayKey: event.overlayKey, eventTitle: event.title });
     } else {
       const view = event.view === "standings" || event.view === "final" ? event.view : "cover";
       await setDoc(doc(db, "gameOverlays", event.overlayKey), clean(overlayFor(event, view, all)));

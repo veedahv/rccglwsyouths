@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import BookPicker from "@/components/BookPicker";
 import { TimerBadge } from "@/components/GameBoard";
 import { teaserEnded } from "@/components/TeaserScreen";
 import { ListPicker, TeaserSlots, useFlash } from "@/components/TeaserParts";
 import { Badge, Card, Notice, Page, PageHeader } from "@/components/ui";
-import { pickUpdate, updateRun } from "@/lib/teasers";
+import { ensureRunOverlay, pickUpdate, updateRun } from "@/lib/teasers";
 import { useRoundTimer } from "@/lib/useRoundTimer";
 import type { TimerState } from "@/types/games";
 import type { TeaserRun } from "@/types/teasers";
@@ -23,11 +23,26 @@ export default function TeaserHost({ run, canControl }: { run: TeaserRun; canCon
   const named = run.slots.filter((s) => s.answer).length;
   const canPick = canControl && run.status === "live" && !ended;
 
+  // When the clock runs out, finish the game so the public screen can show what was missed.
+  const timedOut = timer.enabled && timer.state !== "idle" && timer.remaining <= 0;
+  useEffect(() => {
+    if (canControl && timedOut && run.status === "live") {
+      updateRun(run.id, { status: "finished", timerState: "paused", timerRemaining: 0, timerSeq: run.timerSeq + 1 }, run).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canControl, timedOut, run.status]);
+
+  // A game made before public screens existed gets its link the first time its host opens it.
+  useEffect(() => {
+    if (canControl && !run.overlayKey) ensureRunOverlay(run).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canControl, run.overlayKey]);
+
   async function save(data: Parameters<typeof updateRun>[1]) {
     setBusy(true);
     setError(null);
     try {
-      await updateRun(run.id, data);
+      await updateRun(run.id, data, run);
     } catch {
       setError("That didn't save. Check your connection and try again.");
     } finally {
@@ -73,7 +88,7 @@ export default function TeaserHost({ run, canControl }: { run: TeaserRun; canCon
             <Badge tone={ended ? "gray" : run.status === "live" ? "green" : "amber"} dot={!ended}>
               {ended ? "Finished" : run.status === "live" ? "Live" : "Not started"}
             </Badge>
-            <Link href={`/games/play/${run.id}/present`} target="_blank" className="btn-secondary">
+            <Link href={run.overlayKey ? `/screen/${run.overlayKey}` : `/games/play/${run.id}/present`} target="_blank" className="btn-secondary">
               Open big-screen view
             </Link>
           </>
