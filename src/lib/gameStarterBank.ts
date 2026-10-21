@@ -495,3 +495,58 @@ export const BOARD_STARTER: Record<string, BoardEntry[]> = {
     [500, "This Old Testament book is a love poem, also called Song of Songs.", "Song of Solomon", "Song of Solomon 1:1"],
   ],
 };
+
+// Guess the Book: [emojis, book, scene]. The category is the difficulty. Each clue shows ONE scene
+// that belongs to ONE book (a ship on water would also fit Jesus calming the storm, so it is not used).
+// A book can have several clues; a game picks one at random.
+type BookGuessEntry = [emojis: string, book: string, scene: string];
+
+export const BOOK_GUESS_STARTER: Record<string, BookGuessEntry[]> = {
+  Easy: [
+    ["🍎🐍🌳", "Genesis", "Adam, Eve and the serpent in the garden (Genesis 3)"],
+    ["🌧️🚢🐘🦁", "Genesis", "Noah and the ark (Genesis 6-9)"],
+    ["🪜😇💤", "Genesis", "Jacob's ladder (Genesis 28)"],
+    ["🧥🕳️🐪", "Genesis", "Joseph thrown into a pit and sold (Genesis 37)"],
+    ["🔥🌿👞", "Exodus", "The burning bush (Exodus 3)"],
+    ["🐸🦟🩸", "Exodus", "The plagues of Egypt (Exodus 7-12)"],
+    ["🎵🐑🌿💧", "Psalms", "The Lord is my shepherd (Psalm 23)"],
+    ["🐜☀️🧺", "Proverbs", "Go to the ant, you sluggard (Proverbs 6:6)"],
+    ["🐋🧍‍♂️", "Jonah", "Jonah swallowed by a great fish (Jonah 1-2)"],
+    ["🦁🕳️🙏", "Daniel", "Daniel in the lions' den (Daniel 6)"],
+    ["🔥🔥🧍🧍🧍", "Daniel", "Shadrach, Meshach and Abednego in the furnace (Daniel 3)"],
+    ["⭐🐪🎁👑", "Matthew", "The wise men visit the young Jesus (Matthew 2)"],
+    ["🐷💰🏠👦", "Luke", "The prodigal son comes home (Luke 15)"],
+    ["🌳🧍👀🙋", "Luke", "Zacchaeus climbs a tree to see Jesus (Luke 19)"],
+    ["🍷💧💒", "John", "Water turned into wine at Cana (John 2)"],
+    ["⚰️🧟‍♂️🗣️", "John", "Lazarus raised from the dead (John 11)"],
+    ["🔥🕊️🗣️🗣️", "Acts", "The Holy Spirit comes at Pentecost (Acts 2)"],
+    ["7️⃣📜🐑", "Revelation", "The Lamb opens the seven seals (Revelation 5-6)"],
+  ],
+  Medium: [
+    ["🎺🧱🏙️", "Joshua", "The walls of Jericho fall (Joshua 6)"],
+    ["💇‍♂️🏛️💪", "Judges", "Samson pulls down the temple (Judges 16)"],
+    ["🔦🏺🎺", "Judges", "Gideon's 300 men with torches and trumpets (Judges 7)"],
+    ["🌾👩‍🌾👵", "Ruth", "Ruth gleans in Boaz's field (Ruth 2)"],
+    ["🪨🧒🧌", "1 Samuel", "David and Goliath (1 Samuel 17)"],
+    ["🛁🏠👑👩", "2 Samuel", "David sees Bathsheba bathing (2 Samuel 11)"],
+    ["🔥⛰️🐂🧔", "1 Kings", "Elijah and the prophets of Baal on Mount Carmel (1 Kings 18)"],
+    ["👑⚖️👶", "1 Kings", "Solomon judges between two mothers (1 Kings 3)"],
+    ["🔥🐎🌪️🧔", "2 Kings", "Elijah is taken up in a chariot of fire (2 Kings 2)"],
+    ["🛁🧑‍🦱🏞️7️⃣", "2 Kings", "Naaman dips seven times in the Jordan (2 Kings 5)"],
+    ["🫏🗣️🗡️", "Numbers", "Balaam's donkey speaks (Numbers 22)"],
+    ["🧱🏗️🔨", "Nehemiah", "The walls of Jerusalem are rebuilt (Nehemiah 2-6)"],
+    ["👑🍽️📜", "Esther", "Queen Esther's banquet for the king and Haman (Esther 5)"],
+    ["🏚️😢🩹🙏", "Job", "Job loses everything but keeps his faith (Job 1-2)"],
+    ["🔥🪨👅😇", "Isaiah", "A coal from the altar touches Isaiah's lips (Isaiah 6)"],
+    ["🏺🧑‍🏭🌀", "Jeremiah", "The potter at his wheel (Jeremiah 18)"],
+    ["🦴🧍💨", "Ezekiel", "The valley of dry bones comes to life (Ezekiel 37)"],
+  ],
+  Hard: [
+    ["💍👩💔", "Hosea", "Hosea marries Gomer, a picture of God's faithful love (Hosea 1-3)"],
+    ["📏🧱🏗️", "Amos", "God holds a plumb line against a wall (Amos 7)"],
+    ["🦅⛰️👑⬇️", "Obadiah", "Edom's pride is brought down (Obadiah 1:3-4)"],
+    ["🏰👀🌿", "Habakkuk", "The prophet stands on his watchtower to wait for God's answer (Habakkuk 2)"],
+    ["🔟💰🏪🌧️", "Malachi", "Bring the full tithe into the storehouse (Malachi 3)"],
+    ["✉️🏃‍♂️🤝", "Philemon", "Paul pleads for the runaway Onesimus (Philemon)"],
+  ],
+};

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   getEvent,
@@ -15,22 +15,33 @@ import {
 } from "@/lib/events";
 import { listExcos } from "@/lib/excos";
 import { listEventDocuments } from "@/lib/eventDocuments";
+import {
+  addEventExpense,
+  deleteEventExpense,
+  listEventExpenses,
+  updateEventExpense,
+  ExpenseInput,
+} from "@/lib/eventExpenses";
+import { checkNeededItems, eventMoney, linkMap, spendingBreakdown } from "@/lib/eventBudget";
 import { listYouths } from "@/lib/youths";
 import { getContribution, getPledges, listExternalSupport, computeStats, ContributionStats } from "@/lib/contributions";
-import { contributionPeriod, contributionTiming } from "@/lib/contributionStatus";
-import { formatDate, formatDateTime, naira, todayISO } from "@/lib/format";
+import { formatDate, todayISO } from "@/lib/format";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
+import EventHero from "@/components/EventHero";
+import EditEventModal, { EventDetailsValues } from "@/components/EditEventModal";
+import BudgetSummary from "@/components/BudgetSummary";
+import BudgetLines from "@/components/BudgetLines";
+import EventExpenses, { ExpensePrefill } from "@/components/EventExpenses";
+import NeededItemsCard from "@/components/NeededItemsCard";
+import EventContributionPanel from "@/components/EventContributionPanel";
 import AttendanceChecklist from "@/components/AttendanceChecklist";
 import AgendaEditor from "@/components/AgendaEditor";
 import TaskAssignment from "@/components/TaskAssignment";
 import EditableSection from "@/components/EditableSection";
-import BudgetEditor from "@/components/BudgetEditor";
-import NeededItemsEditor from "@/components/NeededItemsEditor";
 import StartEventContribution from "@/components/StartEventContribution";
 import EventDocuments from "@/components/EventDocuments";
-import { Page, PageHeader, Card, Badge, Field, Loading, Notice } from "@/components/ui";
-import { ContributionBar, ContributionStatusBadge, ItemsLine } from "@/components/ContributionProgress";
+import { Page, PageHeader, Card, Loading, Notice } from "@/components/ui";
 import type {
   ChurchEvent,
   ExcoMember,
@@ -41,7 +52,10 @@ import type {
   NeededItem,
   Contribution,
   EventDocument,
+  EventExpense,
 } from "@/types";
+
+const SAVE_ERROR = "That didn't save. Check your connection and try again.";
 
 function EventDetailInner({ id }: { id: string }) {
   const { user, hasPermission } = useAuth();
@@ -51,23 +65,22 @@ function EventDetailInner({ id }: { id: string }) {
   const [excos, setExcos] = useState<ExcoMember[]>([]);
   const [youths, setYouths] = useState<Youth[]>([]);
   const [documents, setDocuments] = useState<EventDocument[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const [editingDetails, setEditingDetails] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
-  const [dateDraft, setDateDraft] = useState("");
-  const [themeDraft, setThemeDraft] = useState("");
-  const [timeDraft, setTimeDraft] = useState("");
-  const [venueDraft, setVenueDraft] = useState("");
-  const [attendanceDraft, setAttendanceDraft] = useState("");
-  const [savingDetails, setSavingDetails] = useState(false);
-
+  const [expenses, setExpenses] = useState<EventExpense[]>([]);
   const [contribution, setContribution] = useState<Contribution | null>(null);
   const [contributionStats, setContributionStats] = useState<ContributionStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState<string | null>(null);
+
+  const [editingDetails, setEditingDetails] = useState(false);
   const [showStartContribution, setShowStartContribution] = useState(false);
+  // Set when "Record purchase" is chosen on a budget sub-item: opens the spending dialog pre-filled.
+  const [purchasePrefill, setPurchasePrefill] = useState<ExpensePrefill | null>(null);
 
   const canEditEvent = hasPermission("canEditEvents");
   const canStartContribution = hasPermission("canEditFinance") && hasPermission("canEditEvents");
+  // Planning the event covers the budget and the items list; money going
+  // out can also be recorded by whoever handles the finances.
+  const canRecordSpending = canEditEvent || hasPermission("canEditFinance");
 
   async function loadContribution(contributionId: string) {
     const [contributionData, pledges, externalSupport] = await Promise.all([
@@ -81,17 +94,24 @@ function EventDetailInner({ id }: { id: string }) {
 
   async function load() {
     setLoading(true);
-    const [eventData, excoData, youthData, documentData] = await Promise.all([
-      getEvent(id),
-      listExcos({ activeOnly: true }),
-      listYouths({ activeOnly: true }),
-      listEventDocuments(id),
-    ]);
-    setEvent(eventData);
-    setExcos(excoData);
-    setYouths(youthData);
-    setDocuments(documentData);
-    if (eventData?.contributionId) await loadContribution(eventData.contributionId);
+    try {
+      const [eventData, excoData, youthData, documentData, expenseData] = await Promise.all([
+        getEvent(id),
+        listExcos({ activeOnly: true }),
+        listYouths({ activeOnly: true }),
+        listEventDocuments(id),
+        listEventExpenses(id),
+      ]);
+      setEvent(eventData);
+      setExcos(excoData);
+      setYouths(youthData);
+      setDocuments(documentData);
+      setExpenses(expenseData);
+      if (eventData?.contributionId) await loadContribution(eventData.contributionId);
+    } catch (err) {
+      console.error(err);
+      setPageError("Couldn't load this event. Check your connection and refresh.");
+    }
     setLoading(false);
   }
 
@@ -100,277 +120,267 @@ function EventDetailInner({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  async function handleAgendaChange(agenda: AgendaItem[]) {
-    if (!event) return;
-    setEvent({ ...event, agenda }); // optimistic
-    await updateEventAgenda(id, agenda);
+  // Items needed and the budget are linked both ways, so they are worked out together:
+  // purchases make a linked needed item covered, and a covered needed item makes its budget twin donated.
+  const itemsResult = useMemo(
+    () => checkNeededItems(event?.neededItems, contributionStats?.receivedItemLines ?? [], expenses),
+    [event?.neededItems, contributionStats, expenses]
+  );
+  const links = useMemo(() => linkMap(itemsResult.checks), [itemsResult]);
+  const breakdown = useMemo(() => spendingBreakdown(event?.budget, expenses, links), [event?.budget, expenses, links]);
+  const money = useMemo(
+    () => eventMoney(event?.budget, expenses, contributionStats, links),
+    [event?.budget, expenses, contributionStats, links]
+  );
+
+  // Runs a write; when it fails the page shows a message and rolls back.
+  async function attempt(run: () => Promise<void>, rollback?: () => void): Promise<boolean> {
+    try {
+      await run();
+      setPageError(null);
+      return true;
+    } catch (err) {
+      console.error(err);
+      rollback?.();
+      setPageError(SAVE_ERROR);
+      return false;
+    }
   }
 
-  async function handleTasksChange(tasks: EventTask[]) {
+  function handleAgendaChange(agenda: AgendaItem[]) {
     if (!event) return;
+    const previous = event;
+    setEvent({ ...event, agenda }); // optimistic
+    void attempt(() => updateEventAgenda(id, agenda), () => setEvent(previous));
+  }
+
+  function handleTasksChange(tasks: EventTask[]) {
+    if (!event) return;
+    const previous = event;
     setEvent({ ...event, tasks }); // optimistic
-    await updateEventTasks(id, tasks);
+    void attempt(() => updateEventTasks(id, tasks), () => setEvent(previous));
   }
 
   async function handleBudgetChange(budget: BudgetItem[]) {
-    if (!event) return;
-    setEvent({ ...event, budget }); // optimistic
-    await updateEventBudget(id, budget);
+    if (!event) return false;
+    const previous = event;
+    setEvent({ ...event, budget });
+    return attempt(() => updateEventBudget(id, budget), () => setEvent(previous));
   }
 
-  async function handleNeededItemsChange(neededItems: NeededItem[]) {
-    if (!event) return;
-    setEvent({ ...event, neededItems }); // optimistic
-    await updateEventNeededItems(id, neededItems);
+  // `budget` is passed when an item was added to the budget at the same time as the needed list.
+  async function handleNeededItemsChange(neededItems: NeededItem[], budget?: BudgetItem[]) {
+    if (!event) return false;
+    const previous = event;
+    setEvent({ ...event, neededItems, ...(budget ? { budget } : {}) });
+    return attempt(
+      async () => {
+        if (budget) await updateEventBudget(id, budget);
+        await updateEventNeededItems(id, neededItems);
+      },
+      () => setEvent(previous)
+    );
   }
 
-  function startEditingDetails() {
-    if (!event) return;
-    setTitleDraft(event.title);
-    setDateDraft(event.date);
-    setThemeDraft(event.theme ?? "");
-    setTimeDraft(event.time ?? "");
-    setVenueDraft(event.venue ?? "");
-    setAttendanceDraft(event.expectedAttendance ?? "");
-    setEditingDetails(true);
-  }
-
-  async function saveDetails() {
-    if (!titleDraft.trim() || !event) return;
-    setSavingDetails(true);
-    await updateEventDetails(id, {
-      title: titleDraft,
-      date: dateDraft,
-      theme: themeDraft,
-      time: timeDraft,
-      venue: venueDraft,
-      expectedAttendance: attendanceDraft,
+  async function handleSaveDetails(values: EventDetailsValues) {
+    if (!event) return false;
+    return attempt(async () => {
+      await updateEventDetails(id, values);
+      setEvent({
+        ...event,
+        title: values.title.trim(),
+        date: values.date,
+        theme: values.theme.trim(),
+        time: values.time,
+        venue: values.venue.trim(),
+        expectedAttendance: values.expectedAttendance.trim(),
+      });
     });
-    setEvent({
-      ...event,
-      title: titleDraft.trim(),
-      date: dateDraft,
-      theme: themeDraft.trim(),
-      time: timeDraft,
-      venue: venueDraft.trim(),
-      expectedAttendance: attendanceDraft.trim(),
-    });
-    setSavingDetails(false);
-    setEditingDetails(false);
   }
+
+  async function refreshExpenses() {
+    setExpenses(await listEventExpenses(id));
+  }
+
+  const handleAddExpense = (data: ExpenseInput) =>
+    attempt(async () => {
+      await addEventExpense(id, { ...data, recordedBy: user?.uid ?? "" });
+      await refreshExpenses();
+    });
+
+  const handleUpdateExpense = (expenseId: string, data: ExpenseInput) =>
+    attempt(async () => {
+      await updateEventExpense(id, expenseId, data);
+      await refreshExpenses();
+    });
+
+  const handleDeleteExpense = (expenseId: string) =>
+    attempt(async () => {
+      await deleteEventExpense(id, expenseId);
+      await refreshExpenses();
+    });
 
   if (loading)
     return (
-      <Page size="md">
+      <Page size="xl">
+        <PageHeader title="" backHref="/events" backLabel="Events" description="" actions={<></>} />
         <Loading />
       </Page>
     );
   if (!event)
     return (
-      <Page size="md">
-        <Notice tone="error">Event not found.</Notice>
+      <Page size="xl">
+        <PageHeader title="" backHref="/events" backLabel="Events" description="" actions={<></>} />
+        <Notice tone="error">{pageError ?? "Event not found."}</Notice>
       </Page>
     );
 
   const hasHappened = event.date <= todayISO();
+  const tasksDone = event.tasks.filter((t) => t.status === "done").length;
 
   return (
-    <Page size="md">
-      {editingDetails ? (
-        <Card title="Edit event" className="mb-6">
-          <div className="space-y-3">
-            <Field label="Title">
-              <input value={titleDraft} onChange={(e) => setTitleDraft(e.target.value)} className="input" />
-            </Field>
-            <div className="grid grid-cols-2 gap-3 sm:max-w-md">
-              <Field label="Date">
-                <input type="date" value={dateDraft} onChange={(e) => setDateDraft(e.target.value)} className="input" />
-              </Field>
-              <Field label="Time (optional)">
-                <input type="time" value={timeDraft} onChange={(e) => setTimeDraft(e.target.value)} className="input" />
-              </Field>
-            </div>
-            <Field label="Theme (optional)" hint="Leave blank if it hasn't been decided yet.">
-              <input value={themeDraft} onChange={(e) => setThemeDraft(e.target.value)} className="input" />
-            </Field>
-            <Field label="Venue (optional)">
-              <input value={venueDraft} onChange={(e) => setVenueDraft(e.target.value)} className="input" />
-            </Field>
-            <Field label="Expected attendance (optional)">
-              <input
-                value={attendanceDraft}
-                onChange={(e) => setAttendanceDraft(e.target.value)}
-                placeholder="e.g. About 60 youths and 40 children"
-                className="input"
-              />
-            </Field>
-            <div className="flex gap-2">
-              <button onClick={saveDetails} disabled={savingDetails} className="btn-primary btn-sm">
-                {savingDetails ? "Saving…" : "Save"}
-              </button>
-              <button onClick={() => setEditingDetails(false)} className="btn-secondary btn-sm">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </Card>
-      ) : (
-        <PageHeader
-          title={event.title}
-          backHref="/events"
-          backLabel="Events"
-          description={[
-            formatDateTime(event.date, event.time),
-            event.venue,
-            event.theme ? `Theme: ${event.theme}` : canEditEvent ? "No theme yet" : undefined,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-          actions={
-            <>
-              {event.programmeId && (
-                <Link href="/planner" className="btn-ghost">
-                  From yearly planner
-                </Link>
-              )}
-              <Badge tone={hasHappened ? "gray" : "green"} dot>
-                {hasHappened ? "Concluded" : "Upcoming"}
-              </Badge>
-              {canEditEvent && (
-                <button onClick={startEditingDetails} className="btn-secondary btn-sm">
-                  Edit
-                </button>
-              )}
-            </>
-          }
-        />
+    <Page size="xl">
+      <PageHeader
+        title=""
+        backHref="/events"
+        backLabel="Events"
+        description=""
+        actions={
+          <>
+            {event.programmeId && (
+              <Link href="/planner" className="btn-ghost">
+                From yearly planner
+              </Link>
+            )}
+          </>
+        }
+      />
+      <EventHero event={event} hasHappened={hasHappened} canEdit={canEditEvent} onEdit={() => setEditingDetails(true)} />
+
+      {pageError && (
+        <Notice tone="error" className="mb-4">
+          {pageError}
+        </Notice>
       )}
 
       <div className="space-y-6">
-        <Card title="Agenda">
-          <AgendaEditor agenda={event.agenda} excos={excos} canEdit={canEditEvent} onChange={handleAgendaChange} />
-        </Card>
+        <BudgetSummary
+          money={money}
+          hasContribution={!!contribution}
+          itemsCovered={itemsResult.coveredCount}
+          itemsTotal={itemsResult.checks.length}
+        />
 
-        <Card title="Tasks">
-          <TaskAssignment
-            tasks={event.tasks}
-            excos={excos}
-            youths={youths}
-            canEdit={canEditEvent}
-            onChange={handleTasksChange}
-          />
-        </Card>
-
-        <Card
-          title="Budget"
-          action={
-            (event.budget?.length ?? 0) > 0 ? (
-              <span className="num font-display text-lg font-bold text-rccg-purple-800">
-                {naira(budgetTotal(event.budget))}
-              </span>
-            ) : undefined
-          }
-        >
-          <BudgetEditor items={event.budget ?? []} canEdit={canEditEvent} onChange={handleBudgetChange} />
-        </Card>
-
-        <Card
-          title="Items needed"
-          description="What the event needs people to bring or give. Use the note to record what has been gotten so far. Sponsorship requests pick from this list."
-        >
-          <NeededItemsEditor items={event.neededItems ?? []} canEdit={canEditEvent} onChange={handleNeededItemsChange} />
-        </Card>
-
-        <Card
-          title="Planning notes"
-          description="Thoughts, suggestions and things to consider while this is still being planned."
-        >
-          <EditableSection
-            value={event.planningNotes ?? ""}
-            canEdit={canEditEvent}
-            placeholder="Jot down ideas, open questions, things to sort out…"
-            onSave={async (value) => {
-              await updateEventPlanningNotes(id, value);
-              setEvent({ ...event, planningNotes: value });
-            }}
-          />
-        </Card>
-
-        <Card
-          title="Proposal and letters"
-          description="Signed documents you can download as a PDF and send: a proposal (no budget), sponsorship requests (with the budget and what is needed), and a letter asking the place you are visiting to accept."
-        >
-          <EventDocuments
-            event={event}
-            documents={documents}
-            excos={excos}
-            createdBy={user?.uid ?? ""}
-            canEdit={canEditEvent}
-          />
-        </Card>
-
-        <Card title="Contribution">
-          {contribution ? (
-            <div>
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <Link href={`/contributions/${contribution.id}`} className="link text-base">
-                  {contribution.title}
-                </Link>
-                <ContributionStatusBadge contribution={contribution} />
-              </div>
-              <p className="mt-0.5 text-sm text-muted">
-                {contributionPeriod(contribution)}. {contributionTiming(contribution)}.
-              </p>
-              {contributionStats && (
-                <div className="mt-4">
-                  <ContributionBar stats={contributionStats} />
-                  <p className="mt-2 text-sm">
-                    <span className="num font-semibold text-rccg-green-700">
-                      {naira(contributionStats.totalReceived)}
-                    </span>{" "}
-                    <span className="text-muted">
-                      received of {naira(contributionStats.totalPledged)} pledged
-                    </span>
-                  </p>
-                  <ItemsLine stats={contributionStats} className="mt-2" />
-                </div>
-              )}
-            </div>
-          ) : showStartContribution ? (
-            <StartEventContribution
-              eventId={id}
-              eventTitle={event.title}
-              excos={excos}
-              createdBy={user?.uid ?? ""}
-              onCreated={(contributionId) => {
-                setEvent({ ...event, contributionId });
-                setShowStartContribution(false);
-                loadContribution(contributionId);
-              }}
-              onCancel={() => setShowStartContribution(false)}
+        <div className="grid items-start gap-6 xl:grid-cols-5">
+          {/* Money and items: the wide column */}
+          <div className="space-y-6 xl:col-span-3">
+            <BudgetLines
+              budget={event.budget ?? []}
+              breakdown={breakdown}
+              total={budgetTotal(event.budget)}
+              canEdit={canEditEvent}
+              canRecord={canRecordSpending}
+              onChange={handleBudgetChange}
+              onRecordPurchase={(line, child) =>
+                setPurchasePrefill({
+                  description: child.name,
+                  amount: child.price,
+                  budgetItemId: line.id,
+                  budgetSubItemId: child.id,
+                })
+              }
             />
-          ) : (
-            <div>
-              <p className="mb-3 text-sm text-muted">No contribution started for this event yet.</p>
-              {canStartContribution && (
-                <button onClick={() => setShowStartContribution(true)} className="btn-secondary btn-sm">
-                  Start a contribution
-                </button>
-              )}
-            </div>
-          )}
-        </Card>
+
+            <EventExpenses
+              expenses={expenses}
+              budget={event.budget ?? []}
+              total={breakdown.totalSpent}
+              canEdit={canRecordSpending}
+              onAdd={handleAddExpense}
+              onUpdate={handleUpdateExpense}
+              onDelete={handleDeleteExpense}
+              prefill={purchasePrefill}
+              onPrefillHandled={() => setPurchasePrefill(null)}
+            />
+
+            <NeededItemsCard
+              items={event.neededItems ?? []}
+              budget={event.budget ?? []}
+              result={itemsResult}
+              hasContribution={!!contribution}
+              canEdit={canEditEvent}
+              onChange={handleNeededItemsChange}
+            />
+
+            <EventContributionPanel
+              contribution={contribution}
+              stats={contributionStats}
+              canStart={canStartContribution}
+              onStart={() => setShowStartContribution(true)}
+            />
+          </div>
+
+          {/* Planning: the side column */}
+          <div className="space-y-6 xl:col-span-2">
+            <Card
+              title="Agenda"
+              description={event.agenda.length > 0 ? `${event.agenda.length} ${event.agenda.length === 1 ? "item" : "items"}` : undefined}
+            >
+              <AgendaEditor agenda={event.agenda} excos={excos} canEdit={canEditEvent} onChange={handleAgendaChange} />
+            </Card>
+
+            <Card title="Tasks" description={event.tasks.length > 0 ? `${tasksDone} of ${event.tasks.length} done` : undefined}>
+              <TaskAssignment
+                tasks={event.tasks}
+                excos={excos}
+                youths={youths}
+                canEdit={canEditEvent}
+                onChange={handleTasksChange}
+              />
+            </Card>
+
+            <Card
+              title="Proposal and letters"
+              description="Signed documents you can download as a PDF and send: a proposal (no budget), sponsorship requests (with the budget and what is needed), and a letter asking the place you are visiting to accept."
+            >
+              <EventDocuments
+                event={event}
+                documents={documents}
+                excos={excos}
+                createdBy={user?.uid ?? ""}
+                canEdit={canEditEvent}
+              />
+            </Card>
+
+            <Card
+              title="Planning notes"
+              description="Thoughts, suggestions and things to consider while this is still being planned."
+            >
+              <EditableSection
+                title="Planning notes"
+                value={event.planningNotes ?? ""}
+                canEdit={canEditEvent}
+                placeholder="Jot down ideas, open questions, things to sort out…"
+                onSave={async (value) => {
+                  await updateEventPlanningNotes(id, value);
+                  setEvent((current) => (current ? { ...current, planningNotes: value } : current));
+                }}
+              />
+            </Card>
+          </div>
+        </div>
 
         {hasHappened ? (
-          <>
+          <div className="grid items-start gap-6 xl:grid-cols-2">
             <Card title="After-event report">
               <EditableSection
+                title="After-event report"
                 value={event.afterEventReport ?? ""}
                 canEdit={canEditEvent}
                 placeholder="How did it go? What happened, and what to note for next time…"
                 onSave={async (value) => {
                   await updateEventAfterEventReport(id, value);
-                  setEvent({ ...event, afterEventReport: value });
+                  setEvent((current) => (current ? { ...current, afterEventReport: value } : current));
                 }}
               />
             </Card>
@@ -384,13 +394,32 @@ function EventDetailInner({ id }: { id: string }) {
                 onYouthAdded={(y) => setYouths((prev) => [...prev, y])}
               />
             </Card>
-          </>
+          </div>
         ) : (
           <Notice tone="info">
             The after-event report and attendance checklist will appear here once {formatDate(event.date)} arrives.
           </Notice>
         )}
       </div>
+
+      {editingDetails && (
+        <EditEventModal event={event} onSave={handleSaveDetails} onClose={() => setEditingDetails(false)} />
+      )}
+
+      {showStartContribution && (
+        <StartEventContribution
+          eventId={id}
+          eventTitle={event.title}
+          excos={excos}
+          createdBy={user?.uid ?? ""}
+          onCreated={(contributionId) => {
+            setEvent((current) => (current ? { ...current, contributionId } : current));
+            setShowStartContribution(false);
+            loadContribution(contributionId);
+          }}
+          onCancel={() => setShowStartContribution(false)}
+        />
+      )}
     </Page>
   );
 }

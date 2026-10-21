@@ -14,7 +14,9 @@ import {
 } from "@/lib/games";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
+import GamesTabs from "@/components/GamesTabs";
 import { Page, PageHeader, Card, Field, Badge, Loading, EmptyState, Notice } from "@/components/ui";
+import { BIBLE_BOOKS } from "@/lib/bibleBooks";
 import { GAME_LABEL } from "@/types/games";
 import type { GameKind, GameQuestion } from "@/types/games";
 
@@ -114,9 +116,9 @@ function QuestionsInner() {
     const category = form.category.trim();
     if (!category) return setError("Give it a category.");
     if (game === "scramble" && !form.answer.trim()) return setError("Enter the word to unscramble.");
-    if (game === "emoji") {
+    if (game === "emoji" || game === "bookGuess") {
       if (!form.emojis.trim()) return setError("Enter the emojis.");
-      if (!form.answer.trim()) return setError("Enter the answer.");
+      if (!form.answer.trim()) return setError(game === "bookGuess" ? "Enter the book." : "Enter the answer.");
     }
     if (game === "fillBlank") {
       if (!form.statement.trim()) return setError("Enter the verse.");
@@ -149,6 +151,9 @@ function QuestionsInner() {
     } else if (game === "emoji") {
       data = { game, category, emojis: form.emojis.trim(), answer: form.answer.trim(), hint: hint || undefined, reference: note || undefined };
       clearing = { hint, reference: note };
+    } else if (game === "bookGuess") {
+      data = { game, category, emojis: form.emojis.trim(), answer: form.answer.trim(), reference: note || undefined };
+      clearing = { reference: note };
     } else if (game === "fillBlank") {
       data = { game, category, statement: form.statement.trim(), answer: form.answer.trim(), reference: note || undefined };
       clearing = { reference: note };
@@ -287,6 +292,7 @@ function QuestionsInner() {
           )
         }
       />
+      <GamesTabs />
 
       {canEdit && showClear && (
         <Card
@@ -403,6 +409,41 @@ function QuestionsInner() {
                     />
                   </Field>
                 </div>
+              </>
+            )}
+
+            {game === "bookGuess" && (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Emojis" hint="One scene, shown in a few emojis. Could they also fit another book? If so, change them.">
+                    <input
+                      value={form.emojis}
+                      onChange={(e) => setForm({ ...form, emojis: e.target.value })}
+                      className="input text-xl"
+                    />
+                  </Field>
+                  <Field label="Book" hint="Easy: Genesis, Psalms. Hard: Obadiah, Habakkuk. Use Easy, Medium or Hard as the category.">
+                    <input
+                      list="book-names"
+                      value={form.answer}
+                      onChange={(e) => setForm({ ...form, answer: e.target.value })}
+                      className="input"
+                    />
+                    <datalist id="book-names">
+                      {BIBLE_BOOKS.map((b) => (
+                        <option key={b.name} value={b.name} />
+                      ))}
+                    </datalist>
+                  </Field>
+                </div>
+                <Field label="Scene (optional)" hint="Which scene the emojis show. Shown when the book is revealed. A book can have several clues; a game picks one at random.">
+                  <input
+                    value={form.reference}
+                    onChange={(e) => setForm({ ...form, reference: e.target.value })}
+                    placeholder="Noah and the ark (Genesis 6-9)"
+                    className="input"
+                  />
+                </Field>
               </>
             )}
 
@@ -569,6 +610,12 @@ function QuestionsInner() {
                       Format: <code>emojis | answer | hint | reference</code> (hint and reference are optional).
                     </>
                   )}
+                  {game === "bookGuess" && (
+                    <>
+                      Format: <code>emojis | book | scene</code> (scene optional). Use Easy, Medium or Hard as the category. Give a book
+                      several lines for several clues, each showing one scene that fits only that book.
+                    </>
+                  )}
                   {game === "whoAmI" && (
                     <>
                       Format: <code>answer | clue 1 | clue 2 | clue 3 …</code>. Hardest clue first, at least two clues.
@@ -595,6 +642,8 @@ function QuestionsInner() {
                   placeholder={
                     game === "scramble"
                       ? "Moses | Led Israel out of Egypt\nEsther | Became queen and saved her people"
+                      : game === "bookGuess"
+                        ? "🐋🧍‍♂️ | Jonah | Jonah swallowed by a great fish (Jonah 1-2)\n🌧️🚢🐘🦁 | Genesis | Noah and the ark (Genesis 6-9)"
                       : game === "emoji"
                         ? "🐋🚢 | Jonah | Swallowed by a great fish | Jonah 1-2\n⭐🐪🎁 | The wise men"
                         : game === "whoAmI"
@@ -658,6 +707,13 @@ function QuestionsInner() {
                     {(q.hint || q.reference) && (
                       <p className="text-sm text-muted">{[q.hint, q.reference].filter(Boolean).join(" · ")}</p>
                     )}
+                  </>
+                )}
+                {q.game === "bookGuess" && (
+                  <>
+                    <p className="text-2xl leading-tight">{q.emojis}</p>
+                    <p className="font-semibold text-rccg-purple-800">{q.answer}</p>
+                    {q.reference && <p className="text-sm text-muted">{q.reference}</p>}
                   </>
                 )}
                 {q.game === "whoAmI" && (

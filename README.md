@@ -195,6 +195,47 @@ Youths answering on their own phones is planned as a later feature.
   30-clue quiz board), or clear questions for everything or for chosen
   games. Loading the starter set twice is harmless.
 
+### Turn by turn or first to answer
+When a game is set up, **How are questions answered?** decides how points are won.
+- **Who Am I?** and the **quiz board** are always turn by turn. **Scrambled words, Scripture or Cap, Emoji Bible Trivia and Fill in the missing word** can be either (default: first to answer, as before).
+- **First to answer**: whoever answers first; the admin taps that side to give points.
+- **Turn by turn**: you choose who goes first (or pick at random). The side whose turn it is shows a "Their turn" badge on the big screen and overlay. On the run screen: **Correct** gives them full points; **Missed, pass to the next side** gives that side the question for **half points** (with a fresh countdown); **Missed, no points to anyone** shows the answer and awards nothing. With more than two sides each one gets one go at a passed question. The next round (or, on the board, the next tile pick) moves on to the following side.
+- Half points can be fractions (0.5, 1.5). Sessions made before this keep playing as first to answer.
+- Data: `GameSession.playMode` (`"turns"` or `"free"`), `turnIndex`, `turnStart` and `passes`.
+
+### Guess the Book (picture clues)
+A new game in the normal game setup. Emojis show one scene from a book of the Bible; players name the book, and the reveal shows the book and the scene.
+- **Several clues per book**: the question bank can hold many clues for one book (Genesis: the ark, Eden, Jacob's ladder). A game picks one clue per book at random and never uses a book twice.
+- **Difficulty**: the category is the difficulty (**Easy**, **Medium**, **Hard**), so a game can draw from one tier or mix them. The round count in the setup form counts books, not clues.
+- **One scene, one book**: the starter clues are chosen so each fits only one book (a ship on water would also fit Jesus calming the storm, so it isn't used). The clue form reminds you to check this.
+- Starter clues (about 40, across about 30 books) load with "Load starter questions". Works turn by turn or first to answer, like Emoji Bible Trivia. Emoji clues only for now; picture art can come later.
+
+### Teasers (own tab)
+Quick warm-up games, 60 to 90 seconds each, for random people: no teams, points or question bank.
+- **Games > Teasers** (`/games/teasers`): the list of teasers, with **Play**, **Edit**, **Delete**, **New teaser** and **Load starter set** (4-letter books, books starting with J, the minor prophets, the 12 disciples, the fruit of the Spirit). A teaser is a title, a prompt, a list of answers (with optional aliases), a timer and how the host picks answers, so new ones need no new code.
+- **Playing** (`/games/play/[id]`): the host starts the clock and taps each answer as it is shouted; it fills the next numbered slot on the **big screen** (`/games/play/[id]/present`). An answer already named gives an "Already named" nudge, and one that isn't on the list shakes the slots, filling nothing. One timer covers the whole game. At the end (time up, all named, or "Reveal what's left") the unnamed slots are revealed. The host can type who got each answer.
+- **Two pickers**: a **book grid** (all 66 books, Old and New Testament, grouped, with a filter; numbered books like 1 John are separate from John), and a **list picker** (tap an answer, or type it and press Enter; typed answers match aliases such as Didymus for Thomas). Teasers can set "how many must be named" for open-ended ones (name 5 miracles from a long list).
+- **Disputed lists** use aliases and wrong options: both Jameses accept "James", Thomas accepts Didymus, the fruit of the Spirit accepts either translation's wording.
+- Data: `/gameTeasers/{id}` (the teasers) and `/gameRuns/{id}` (one play; `kind: "teaser"`). The run's `kind` decides which host controls and big-screen view load, so other kinds of game can plug in later (add a case in `games/play/[id]/page.tsx` and `.../present/page.tsx`). Teasers don't have an OBS overlay yet.
+- **Deploy the updated `firestore.rules`** (new `gameTeasers` and `gameRuns` rules).
+
+### Attendance, hosts and how to play
+- **Attendance and hosts** (on the games event page): tick who is present, add guests, and mark one or more **hosts**. Hosts run the games, so they are never picked to play. Once anyone is marked present, games in the event pick only from the people present; before that they pick from every active youth. Hosts are shown on the cover screen. Stored on `/gameEvents/{id}` as `presentIds`, `guests` and `hosts`.
+- **Picking players** (when adding a game): in **Team vs Team**, "Add everyone present and shuffle into teams" deals everyone into the teams at random, or pick players by hand. **Random draw** draws from the same people. **Leave some people out of the picking** excludes anyone for that game, whether by hand, drawn or shuffled.
+- **How to play**: every game has its rules (`lib/gameRules.ts`), worded for how the game is set up (turn by turn or first to answer, timer, number of rounds). They show on the **big-screen view** with the game's name while the game is waiting to start, and on the run screen's "Ready to start?" card for the host. They are **never** on the OBS overlay, which shows only the game's name.
+
+### Games events (a games day with several games)
+`/games` now starts either a **games event** or a **single game**.
+
+- **Games event** (`/games/events/[id]`): one occasion, e.g. "Games Day", with a title, date/time, venue and the games planned for it. It owns **one big-screen page** (`/games/events/[id]/present`) and **one OBS overlay link** for the whole day.
+- **Cover screen**: before the first game, the big screen shows the poster-style cover (title, when, the games to be played, faded scattered icons). The overlay shows just the event's title as a tag.
+- **Adding games**: "Add a game" on the event page. Every game picks its **own sides**, so Boys vs Girls can play game 1 and Team A vs Team B game 2. "Same sides as" buttons reuse an earlier game's sides so players aren't picked again.
+- **On the big screen**: the event page switches the screen between the cover, any game (each opens on its game-name tag until "Start game"), the standings and the final result. The overlay follows.
+- **Overall result**: games played by the same sides are added up (Boys vs Girls always match; teams match by name; players by ID). Games with different sides are listed on their own. "Final result" shows the overall winner and the full table, a column per game.
+- A **single-game event** is just an event with one game. Stand-alone games (`Single game` button) still work as before, with their own screen and overlay.
+- Data: `/gameEvents/{id}` (the event and what is on screen); each game in it is a `/gameSessions` document with `eventId`. The event's overlay is `/gameOverlays/{key}`.
+- **Deploy the updated `firestore.rules`** (new `gameEvents` rule).
+
 Games:
 
 - **Scrambled words** (any category), with an optional hint per word.
@@ -247,7 +288,9 @@ that lists players.
 How it is stored:
 
 - `/gameQuestions/{id}`: the question bank.
-- `/gameSessions/{id}`: one document per session, with its sides, a frozen
+- `/gameSessions/{id}`: one document per session, with who started it (their
+  login ID and name; shown as "Started by" on the games list and run screen, and
+  for information only, since anyone with permission can still run any session), its sides, a frozen
   copy of each round's question, the points awarded per round, and the timer
   and hint settings. Editing or clearing the question bank never changes a
   game that was already played.
@@ -283,8 +326,12 @@ Links (add each as a Browser Source, 1920 x 1080):
 - `/overlay/KEY?show=scores`: a slim row of score pills.
 - `/overlay/KEY?show=timer`: only the countdown.
 
-Options: `&position=top|center|bottom` (default bottom), `&size=compact`, and
-`&scale=0.8` (anything from 0.5 to 2).
+The overlay is compact by default (a card about 40% of the frame's width, or a
+little wider for the quiz board). Options: `&position=top|center|bottom`
+(default bottom), `&align=left|center|right` (default center, so
+`&align=left` tucks it into a corner), `&size=large` for a bigger card, and
+`&scale=0.8` (anything from 0.5 to 2). The timer has its own row above the
+question, so it never covers the text.
 
 Suggested OBS setup:
 

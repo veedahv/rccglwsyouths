@@ -21,8 +21,9 @@ import {
   FILL_BLANK_STARTER,
   SCRAMBLE_STARTER,
   WHO_AM_I_STARTER,
+  BOOK_GUESS_STARTER,
 } from "./gameStarterBank";
-import { BLANK } from "@/types/games";
+import { BLANK, gameAlwaysTurns, hasStarted } from "@/types/games";
 import type {
   GameKind,
   GameMode,
@@ -30,8 +31,11 @@ import type {
   GameQuestion,
   GameRound,
   GameSession,
+  OverlayDoc,
+  PlayMode,
   GameSide,
 } from "@/types/games";
+import type { ExcoMember } from "@/types";
 
 /* ------------------------------------------------------------------ */
 /* Small helpers                                                       */
@@ -154,7 +158,7 @@ function questionKey(q: Pick<GameQuestion, "game" | "category" | "answer" | "sta
   const body =
     q.game === "scramble" || q.game === "whoAmI"
       ? q.answer ?? ""
-      : q.game === "emoji"
+      : q.game === "emoji" || q.game === "bookGuess"
         ? `${q.emojis ?? ""}${q.answer ?? ""}`
         : q.game === "board"
           ? `${q.value ?? ""}${q.statement ?? ""}`
@@ -195,6 +199,12 @@ export async function seedStarterQuestions(existing: GameQuestion[]): Promise<nu
       if (!have.has(questionKey(q))) toAdd.push(q);
     }
   }
+  for (const [category, entries] of Object.entries(BOOK_GUESS_STARTER)) {
+    for (const [emojis, answer, reference] of entries) {
+      const q = { game: "bookGuess" as const, category, emojis, answer, reference, createdAt: now };
+      if (!have.has(questionKey(q))) toAdd.push(q);
+    }
+  }
   for (const [category, entries] of Object.entries(FILL_BLANK_STARTER)) {
     for (const [statement, answer, reference] of entries) {
       const q = { game: "fillBlank" as const, category, statement, answer, reference, createdAt: now };
@@ -232,6 +242,7 @@ export async function seedStarterQuestions(existing: GameQuestion[]): Promise<nu
  * - Scripture or Cap: "quote | scripture or cap | note", where the note is the
  *   verse for Scripture or where a Cap saying really comes from
  * - Emoji Bible Trivia: "emojis | answer | hint | reference" (hint and reference optional)
+ * - Guess the Book: "emojis | book | scene" (scene optional), e.g. "🐋🧍‍♂️ | Jonah | Jonah swallowed by a great fish (Jonah 1-2)"
  * - Fill in the missing word: "verse with ___ | missing words | reference",
  *   with several missing words separated by commas, in order
  * - Who Am I?: "answer | clue 1 | clue 2 | clue 3 ..." (hardest clue first,
@@ -261,6 +272,12 @@ export function parseBulk(
         continue;
       }
       questions.push({ game, category, emojis: parts[0], answer: parts[1], hint: parts[2] || undefined, reference: parts[3] || undefined });
+    } else if (game === "bookGuess") {
+      if (!parts[0] || !parts[1]) {
+        skipped++;
+        continue;
+      }
+      questions.push({ game, category, emojis: parts[0], answer: parts[1], reference: parts[2] || undefined });
     } else if (game === "whoAmI") {
       const clues = parts.slice(1).filter(Boolean);
       if (!parts[0] || clues.length < 2) {
@@ -364,6 +381,15 @@ export function questionToRound(q: GameQuestion): GameRound {
         category: q.category,
         awards: {},
       };
+    case "bookGuess":
+      return {
+        questionId: q.id,
+        prompt: q.emojis ?? "",
+        answer: (q.answer ?? "").trim(),
+        reference: q.reference,
+        category: q.category,
+        awards: {},
+      };
     case "fillBlank":
       return {
         questionId: q.id,
@@ -409,8 +435,24 @@ export function questionToRound(q: GameQuestion): GameRound {
   }
 }
 
+/** Guess the Book clues grouped by book. */
+export function cluesByBook(questions: GameQuestion[]): Record<string, GameQuestion[]> {
+  const out: Record<string, GameQuestion[]> = {};
+  for (const q of questions) {
+    const key = (q.answer ?? "").trim().toLowerCase();
+    (out[key] ??= []).push(q);
+  }
+  return out;
+}
+
 /** Picks `count` distinct questions at random and freezes them into rounds. */
 export function buildRounds(questions: GameQuestion[], count: number): GameRound[] {
+  // Guess the Book: a book can have several clues. Pick one at random per book, so no book comes up twice.
+  if (questions.length > 0 && questions.every((q) => q.game === "bookGuess")) {
+    return shuffle(Object.values(cluesByBook(questions)).map((clues) => shuffle(clues)[0]))
+      .slice(0, count)
+      .map(questionToRound);
+  }
   return shuffle(questions).slice(0, count).map(questionToRound);
 }
 
@@ -442,20 +484,30 @@ export async function createSession(data: {
   sides: GameSide[];
   rounds: GameRound[];
   createdBy: string;
+  createdByName: string;
   timerSeconds: number; // 0 means no timer
   showHints: boolean;
   board?: { categories: string[]; values: number[] }; // quiz board only
+  eventId?: string; // a game inside a games event has no overlay of its own
+  playMode?: PlayMode; // turn by turn or first to answer (Who Am I? and the board are always turn by turn)
+  firstTurn?: number; // index into `sides` of the side that goes first (turn by turn)
 }): Promise<string> {
-  const { board, ...rest } = data;
-  const overlayKey = newOverlayKey();
+  const { board, playMode: chosenMode, firstTurn, ...rest } = data;
+  const playMode: PlayMode = gameAlwaysTurns(data.game) ? "turns" : chosenMode ?? "free";
+  const first = Math.min(Math.max(firstTurn ?? 0, 0), Math.max(data.sides.length - 1, 0));
+  const overlayKey = data.eventId ? "" : newOverlayKey();
   const session: Omit<GameSession, "id"> = {
     ...rest,
     overlayKey,
     // A quiz board opens on the board itself (-1); every other game opens on round 1.
     currentRound: board ? -1 : 0,
-    ...(board ? { boardCategories: board.categories, boardValues: board.values, turnIndex: 0 } : {}),
+    ...(board ? { boardCategories: board.categories, boardValues: board.values } : {}),
+    playMode,
+    ...(playMode === "turns" ? { turnIndex: first, turnStart: first, passes: 0 } : {}),
     // Who Am I? starts each round with its first clue showing.
     ...(data.game === "whoAmI" ? { cluesShown: 1 } : {}),
+    // Nothing is shown on the big screen or the overlay but the game's name until the admin starts the game.
+    started: false,
     revealed: false,
     timerState: "idle",
     timerRemaining: data.timerSeconds,
@@ -464,10 +516,12 @@ export async function createSession(data: {
     createdAt: new Date().toISOString(),
   };
   const ref = await addDoc(collection(db, "gameSessions"), clean(session));
-  try {
-    await writeOverlay(overlayKey, { id: ref.id, ...session });
-  } catch {
-    // The run screen has a "Resync overlay" button if this didn't go through.
+  if (overlayKey) {
+    try {
+      await writeOverlay(overlayKey, { id: ref.id, ...session });
+    } catch {
+      // The run screen has a "Resync overlay" button if this didn't go through.
+    }
   }
   return ref.id;
 }
@@ -501,6 +555,8 @@ export async function deleteSession(session: Pick<GameSession, "id" | "overlayKe
  */
 export function redactForDisplay(session: GameSession): GameSession {
   const cluesShown = session.cluesShown ?? 1;
+  // Before the game starts nothing is on screen, so not even the first question is sent.
+  const live = hasStarted(session);
   const rounds: GameRound[] = session.rounds.map((r, i) => {
     const out: GameRound = {
       questionId: r.questionId,
@@ -511,7 +567,7 @@ export function redactForDisplay(session: GameSession): GameSession {
       value: r.value,
       played: r.played,
     };
-    if (i !== session.currentRound || session.status === "finished") return out;
+    if (!live || i !== session.currentRound || session.status === "finished") return out;
     out.prompt = r.prompt;
     if (session.showHints !== false) out.hint = r.hint;
     if (r.clues) out.clues = r.clues.map((c, idx) => (idx < cluesShown ? c : ""));
@@ -523,7 +579,18 @@ export function redactForDisplay(session: GameSession): GameSession {
     }
     return out;
   });
-  return { ...session, rounds, createdBy: "", overlayKey: undefined };
+  return { ...session, rounds, createdBy: "", createdByName: undefined, overlayKey: undefined };
+}
+
+/**
+ * Who started a session: the name saved with it, or for older sessions that
+ * only have the person's login ID, their name from the excos list.
+ */
+export function startedByName(
+  session: Pick<GameSession, "createdBy" | "createdByName">,
+  excos: Pick<ExcoMember, "uid" | "name">[]
+): string | null {
+  return session.createdByName || excos.find((e) => e.uid && e.uid === session.createdBy)?.name || null;
 }
 
 export function newOverlayKey(): string {
@@ -531,7 +598,7 @@ export function newOverlayKey(): string {
   return doc(collection(db, "gameOverlays")).id;
 }
 
-async function writeOverlay(key: string, session: GameSession): Promise<void> {
+export async function writeOverlay(key: string, session: GameSession): Promise<void> {
   await setDoc(doc(db, "gameOverlays", key), clean(redactForDisplay(session)));
 }
 
@@ -562,15 +629,15 @@ export async function syncOverlay(session: GameSession): Promise<string> {
   return key;
 }
 
-/** Live updates for the overlay page. It needs no sign-in. */
+/** Live updates for the overlay page. It needs no sign-in. The document is a game, or an event's own screen. */
 export function subscribeOverlay(
   key: string,
-  onChange: (session: GameSession | null) => void,
+  onChange: (overlay: OverlayDoc | null) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
   return onSnapshot(
     doc(db, "gameOverlays", key),
-    (snap) => onChange(snap.exists() ? (snap.data() as GameSession) : null),
+    (snap) => onChange(snap.exists() ? (snap.data() as OverlayDoc) : null),
     (err) => onError?.(err)
   );
 }
@@ -650,4 +717,28 @@ export function winners(session: Pick<GameSession, "rounds" | "sides">): GameSid
   const ranked = rankSides(session);
   if (ranked.length === 0 || ranked[0].points === 0) return [];
   return ranked.filter((r) => r.rank === 1).map((r) => r.side);
+}
+
+/* ------------------------------------------------------------------ */
+/* Turn by turn                                                        */
+/* ------------------------------------------------------------------ */
+
+export function isTurnBased(session: Pick<GameSession, "playMode">): boolean {
+  return session.playMode === "turns";
+}
+
+/** The side whose turn it is (turn by turn), or on an older quiz board the side that picks the next tile. */
+export function turnSide(session: Pick<GameSession, "game" | "playMode" | "sides" | "turnIndex">): GameSide | undefined {
+  if (session.playMode === "turns" || session.game === "board") return session.sides[session.turnIndex ?? 0];
+  return undefined;
+}
+
+/** Full points for the side that started the round; half once it has been passed on. */
+export function turnMultiplier(session: Pick<GameSession, "passes">): number {
+  return (session.passes ?? 0) > 0 ? 0.5 : 1;
+}
+
+/** Can the question still be passed to another side? Each side gets one go at it. */
+export function canPass(session: Pick<GameSession, "passes" | "sides">): boolean {
+  return (session.passes ?? 0) < session.sides.length - 1;
 }

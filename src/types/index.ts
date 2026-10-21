@@ -265,7 +265,22 @@ export type MeetingActionItem = EventTask;
 export interface BudgetItem {
   id: string;
   item: string;
+  // When there are sub-items, `price` is always their total (kept in sync
+  // whenever the item is saved), so anything reading `price` stays right.
   price: number; // ₦
+  children?: BudgetSubItem[];
+}
+
+// A part of a budget item: "Jollof rice" might hold rice, meat, oil. A
+// sub-item is sorted out one of two ways: someone donates it (`donated`),
+// or a purchase is recorded against it (an expense with its id). Which one
+// is worked out from the data (see eventBudget.ts), not stored.
+export interface BudgetSubItem {
+  id: string;
+  name: string;
+  price: number; // ₦ — what it is expected to cost if we buy it
+  donated?: boolean;
+  donatedBy?: string;
 }
 
 // Something the event needs people to bring or give — clothes, a bag of
@@ -278,6 +293,35 @@ export interface NeededItem {
   name: string;
   quantity: string;
   note?: string;
+  // The four fields below let the app check whether there is enough. All
+  // optional, so lists made before they existed keep working unchanged.
+  target?: number; // how many are needed, as a number (the free-text `quantity` stays for printing)
+  unit?: string; // e.g. "bags", "packs"
+  gotten?: number; // how many were got outside the contribution drive (bought, handed over directly)
+  enough?: boolean; // ticked as enough by hand, for items with no number ("a basket")
+  // Optional link to the same thing in the budget: a sub-item (both ids), or a
+  // budget item that has no sub-items (just `budgetItemId`). Once linked, an item
+  // covered here shows as donated in the budget, and a purchase recorded in the
+  // budget counts it as covered here.
+  budgetItemId?: string;
+  budgetSubItemId?: string;
+}
+
+// /events/{eventId}/expenses/{expenseId} — money actually spent on the
+// event. Kept with the event (like contributions, it never touches the
+// financial report). `budgetItemId` ties it to a line of the event's
+// budget; spending with no line is shown as "not on the budget".
+export interface EventExpense {
+  id: string;
+  description: string;
+  amount: number; // ₦
+  date: string; // ISO date
+  budgetItemId?: string;
+  budgetSubItemId?: string; // the part of that budget item this paid for
+  method?: PaymentMethod;
+  note?: string;
+  recordedBy: string; // uid
+  createdAt: string;
 }
 
 export interface ChurchEvent {

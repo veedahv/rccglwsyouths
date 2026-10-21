@@ -11,6 +11,7 @@ import {
 } from "@/lib/eventDocuments";
 import { fallbackRoleLabel } from "@/lib/roles";
 import { formatDate } from "@/lib/format";
+import Modal from "@/components/Modal";
 import { Badge, EmptyState, Field, Notice } from "@/components/ui";
 import type { ChurchEvent, EventDocument, EventDocumentKind, ExcoMember } from "@/types";
 
@@ -53,6 +54,12 @@ export default function EventDocuments({ event, documents, excos, createdBy, can
 
   const hasProposal = documents.some((d) => d.kind === "proposal");
 
+  function openAsk(kind: "sponsorship" | "visit") {
+    setError(null);
+    setRecipient("");
+    setAskingFor(kind);
+  }
+
   return (
     <div>
       {documents.length === 0 ? (
@@ -82,47 +89,61 @@ export default function EventDocuments({ event, documents, excos, createdBy, can
         </ul>
       )}
 
-      {error && <Notice tone="error" className="mt-3">{error}</Notice>}
+      {error && !askingFor && <Notice tone="error" className="mt-3">{error}</Notice>}
 
       {canEdit && (
-        <div className="mt-4">
-          {askingFor ? (
-            <div className="panel space-y-3">
-              <Field
-                label={askingFor === "visit" ? "Who is the letter addressed to?" : "Who is the request addressed to?"}
-                hint="A person, a company or an organisation. You can change it later."
-              >
-                <input
-                  value={recipient}
-                  onChange={(e) => setRecipient(e.target.value)}
-                  className="input"
-                  placeholder={askingFor === "visit" ? "e.g. The Director" : "e.g. The Managing Director, Sunrise Foods Ltd"}
-                  autoFocus
-                />
-              </Field>
-              <div className="flex gap-2">
-                <button onClick={() => create(askingFor)} disabled={creating} className="btn-primary btn-sm">
-                  {creating ? "Creating…" : askingFor === "visit" ? "Create letter" : "Create request"}
-                </button>
-                <button onClick={() => setAskingFor(null)} className="btn-secondary btn-sm">
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              <button onClick={() => create("proposal")} disabled={creating} className="btn-secondary btn-sm">
-                {hasProposal ? "New proposal" : "Write a proposal"}
-              </button>
-              <button onClick={() => setAskingFor("sponsorship")} disabled={creating} className="btn-secondary btn-sm">
-                New sponsorship request
-              </button>
-              <button onClick={() => setAskingFor("visit")} disabled={creating} className="btn-secondary btn-sm">
-                Letter asking to visit
-              </button>
-            </div>
-          )}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button type="button" onClick={() => create("proposal")} disabled={creating} className="btn-secondary btn-sm">
+            {hasProposal ? "New proposal" : "Write a proposal"}
+          </button>
+          <button type="button" onClick={() => openAsk("sponsorship")} disabled={creating} className="btn-secondary btn-sm">
+            New sponsorship request
+          </button>
+          <button type="button" onClick={() => openAsk("visit")} disabled={creating} className="btn-secondary btn-sm">
+            Letter asking to visit
+          </button>
         </div>
+      )}
+
+      {askingFor && (
+        <Modal
+          open
+          title={askingFor === "visit" ? "Letter asking to visit" : "New sponsorship request"}
+          onClose={() => setAskingFor(null)}
+          busy={creating}
+          footer={
+            <>
+              <button type="button" onClick={() => setAskingFor(null)} disabled={creating} className="btn-secondary">
+                Cancel
+              </button>
+              <button type="submit" form="document-recipient-form" disabled={creating} className="btn-primary">
+                {creating ? "Creating…" : askingFor === "visit" ? "Create letter" : "Create request"}
+              </button>
+            </>
+          }
+        >
+          <form
+            id="document-recipient-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              create(askingFor);
+            }}
+            className="space-y-4"
+          >
+            <Field
+              label={askingFor === "visit" ? "Who is the letter addressed to?" : "Who is the request addressed to?"}
+              hint="A person, a company or an organisation. You can change it later."
+            >
+              <input
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+                className="input"
+                placeholder={askingFor === "visit" ? "e.g. The Director" : "e.g. The Managing Director, Sunrise Foods Ltd"}
+              />
+            </Field>
+            {error && <Notice tone="error">{error}</Notice>}
+          </form>
+        </Modal>
       )}
     </div>
   );

@@ -12,8 +12,8 @@ interface ModalProps {
   busy?: boolean;
   children: ReactNode;
   footer?: ReactNode;
-  /** "md" suits a question or a small form; "xl" is a tall, wide panel for previews. */
-  size?: "md" | "xl";
+  /** "md" suits a question or a small form; "lg" a wider list or checklist; "xl" is a tall, wide panel for previews. */
+  size?: "md" | "lg" | "xl";
 }
 
 /**
@@ -90,7 +90,7 @@ export default function Modal({ open, title, onClose, busy = false, children, fo
         aria-modal="true"
         aria-labelledby={titleId}
         className={`flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl ${
-          size === "xl" ? "h-[92vh] max-w-4xl" : "max-w-md"
+          size === "xl" ? "h-[92vh] max-w-4xl" : size === "lg" ? "max-w-2xl" : "max-w-md"
         }`}
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 py-4">

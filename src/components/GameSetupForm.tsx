@@ -5,8 +5,8 @@ import Link from "next/link";
 import { formatPersonName } from "@/lib/formatName";
 import { dealIntoTeams, genderSides, individualSides, newGuestId, shuffle, teamSides } from "@/lib/games";
 import { Field, Notice } from "@/components/ui";
-import { GAME_LABEL, MODE_LABEL, gameHasHints } from "@/types/games";
-import type { GameKind, GameMode, GamePlayer, GameQuestion, GameSide } from "@/types/games";
+import { GAME_LABEL, MODE_LABEL, gameAlwaysTurns, gameCanChoosePlayMode, gameHasHints } from "@/types/games";
+import type { GameKind, GameMode, GamePlayer, GameQuestion, GameSide, PlayMode } from "@/types/games";
 import type { Youth } from "@/types";
 
 export interface GameDraft {
@@ -18,6 +18,15 @@ export interface GameDraft {
   roundCount: number;
   timerSeconds: number; // 0 means no timer
   showHints: boolean;
+  playMode: PlayMode; // Who Am I? and the quiz board are always "turns"
+  firstTurn: number; // index into `sides` of the side that goes first (used when playMode is "turns")
+}
+
+/** The sides of a game already played in this event, offered so the next game can reuse them. */
+export interface ReusableLineup {
+  label: string; // e.g. "Boys vs Girls"
+  mode: GameMode;
+  sides: GameSide[];
 }
 
 interface Props {
@@ -25,12 +34,28 @@ interface Props {
   questions: GameQuestion[]; // the whole question bank
   saving: boolean;
   onSubmit: (draft: GameDraft) => void;
+  // Inside a games event: the game to start on, and the sides of earlier games in the event.
+  defaultGame?: GameKind;
+  reuse?: ReusableLineup[];
+  submitLabel?: string;
+  // Inside a games event: the hosts, who are never picked, and who is present. With `attendance`
+  // set, players are picked only from the people present (and guests who came); without it,
+  // from every active youth.
+  hosts?: GamePlayer[];
+  attendance?: { presentIds: string[]; guests: GamePlayer[] } | null;
+}
+
+/** Someone who can be picked to play. */
+interface Candidate {
+  player: GamePlayer;
+  unit?: string;
 }
 
 const GAMES: { value: GameKind; description: string }[] = [
   { value: "scramble", description: "Unscramble the letters. Characters, Bible words, books, places and more." },
   { value: "bibleOrCap", description: "A quote is shown. Is it Scripture, or is it cap (a saying that is not in the Bible)?" },
   { value: "emoji", description: "A few emojis are shown. Guess the Bible story, character or miracle." },
+  { value: "bookGuess", description: "Emojis show one scene from a book of the Bible. Which book is it? Easy, medium and hard." },
   { value: "fillBlank", description: "A verse is shown with a word missing. Who can fill it in?" },
   { value: "whoAmI", description: "Clues about a Bible person are revealed one at a time. The sooner you guess, the more points." },
   { value: "board", description: "A grid of categories and point levels, like a quiz show. Sides take turns picking a tile." },
@@ -51,9 +76,14 @@ function toPlayer(y: Youth): GamePlayer {
   return { id: y.id, name: formatPersonName(y.name, y.gender), gender: y.gender };
 }
 
-export default function GameSetupForm({ youths, questions, saving, onSubmit }: Props) {
-  const [title, setTitle] = useState("Game night");
-  const [game, setGame] = useState<GameKind>("scramble");
+export default function GameSetupForm({ youths, questions, saving, onSubmit, defaultGame, reuse = [], submitLabel, hosts = [], attendance = null }: Props) {
+  const inEvent = defaultGame !== undefined;
+  const [title, setTitle] = useState(defaultGame ? GAME_LABEL[defaultGame] : "Game night");
+  const [game, setGame] = useState<GameKind>(defaultGame ?? "scramble");
+  // Same sides as an earlier game in the event, instead of picking players again.
+  const [reused, setReused] = useState<ReusableLineup | null>(null);
+  const [chosenPlayMode, setChosenPlayMode] = useState<PlayMode>("free");
+  const [firstTurn, setFirstTurn] = useState<number | "random">("random");
   const [categories, setCategories] = useState<string[]>([]);
   const [roundCount, setRoundCount] = useState(10);
   const [timerSeconds, setTimerSeconds] = useState(30);
@@ -65,6 +95,8 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
   const [manualTeam, setManualTeam] = useState<Record<string, number>>({});
   const [drawCount, setDrawCount] = useState(4);
   const [search, setSearch] = useState("");
+  // People left out of picking, e.g. someone who is helping run the game or doesn't want to play.
+  const [excluded, setExcluded] = useState<string[]>([]);
   const [guestName, setGuestName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -72,15 +104,25 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
 
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const q of questions) if (q.game === game) counts.set(q.category, (counts.get(q.category) ?? 0) + 1);
+    if (game === "bookGuess") {
+      // Several clues for one book count once: a game uses each book only once.
+      const books = new Map<string, Set<string>>();
+      for (const q of questions)
+        if (q.game === game) books.set(q.category, (books.get(q.category) ?? new Set()).add((q.answer ?? "").trim().toLowerCase()));
+      for (const [category, set] of books) counts.set(category, set.size);
+    } else {
+      for (const q of questions) if (q.game === game) counts.set(q.category, (counts.get(q.category) ?? 0) + 1);
+    }
     return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [questions, game]);
 
-  const available = categoryCounts
+  const questionCount = categoryCounts
     .filter(([name]) => categories.includes(name))
     .reduce((sum, [, n]) => sum + n, 0);
 
   function changeGame(next: GameKind) {
+    // Inside an event the title is just the game's name, so keep it in step until it is edited.
+    if (inEvent && title === GAME_LABEL[game]) setTitle(GAME_LABEL[next]);
     setGame(next);
     setCategories([]);
   }
@@ -93,7 +135,27 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
 
   const playerCap = mode === "duel" ? 2 : Infinity;
   const chosen = new Set(players.map((p) => p.id));
-  const shownYouths = search ? youths.filter((y) => y.name.toLowerCase().includes(search.toLowerCase())) : youths;
+
+  // Who can be picked: the people present (or every active youth when attendance wasn't taken),
+  // never the hosts.
+  const pool = useMemo<Candidate[]>(() => {
+    const hostIds = new Set(hosts.map((h) => h.id));
+    const here = attendance ? new Set(attendance.presentIds) : null;
+    const fromYouths = youths
+      .filter((y) => !hostIds.has(y.id) && (!here || here.has(y.id)))
+      .map((y) => ({ player: toPlayer(y), unit: y.unit }));
+    const guests = (attendance?.guests ?? []).filter((g) => !hostIds.has(g.id)).map((g) => ({ player: g }));
+    return [...fromYouths, ...guests];
+  }, [youths, hosts, attendance]);
+  // Excluded people are left out of every pick: by hand, drawn at random, or shuffled into teams.
+  const available = pool.filter((c) => !excluded.includes(c.player.id));
+  const shownPool = search ? available.filter((c) => c.player.name.toLowerCase().includes(search.toLowerCase())) : available;
+
+  function toggleExcluded(id: string) {
+    setExcluded((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    // Someone already picked who is now left out comes off the list.
+    setPlayers((prev) => prev.filter((p) => p.id !== id));
+  }
 
   function changeMode(next: GameMode) {
     setMode(next);
@@ -102,9 +164,9 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
     setError(null);
   }
 
-  function toggleYouth(y: Youth) {
-    if (chosen.has(y.id)) setPlayers(players.filter((p) => p.id !== y.id));
-    else if (players.length < playerCap) setPlayers([...players, toPlayer(y)]);
+  function togglePlayer(c: Candidate) {
+    if (chosen.has(c.player.id)) setPlayers(players.filter((p) => p.id !== c.player.id));
+    else if (players.length < playerCap) setPlayers([...players, c.player]);
   }
 
   function addGuest() {
@@ -119,9 +181,18 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
   }
 
   function draw() {
-    const pool = youths.map(toPlayer);
-    const keepGuests = players.filter((p) => p.guest);
-    setPlayers([...shuffle(pool).slice(0, Math.max(0, drawCount - keepGuests.length)), ...keepGuests]);
+    // Guests added by hand stay in; the rest are drawn from whoever is available.
+    const keepGuests = players.filter((p) => p.guest && !pool.some((c) => c.player.id === p.id));
+    const drawn = shuffle(available.map((c) => c.player)).slice(0, Math.max(0, drawCount - keepGuests.length));
+    setPlayers([...drawn, ...keepGuests]);
+  }
+
+  /** Teams: take everyone available and deal them into the teams at random. */
+  function everyoneIntoTeams() {
+    const kept = players.filter((p) => p.guest && !pool.some((c) => c.player.id === p.id));
+    const everyone = shuffle([...available.map((c) => c.player), ...kept]);
+    setPlayers(everyone);
+    setManualTeam(dealIntoTeams(everyone, teamCount));
   }
 
   /* ----- teams ----- */
@@ -152,6 +223,18 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
     setManualTeam(dealIntoTeams(players, teamCount));
   }
 
+  /* ----- how it is played ----- */
+
+  const playMode: PlayMode = gameAlwaysTurns(game) ? "turns" : chosenPlayMode;
+  // The sides as they will be, so "who goes first" can list them before the game is created.
+  const sidePreview: string[] = reused
+    ? reused.sides.map((s) => s.name)
+    : mode === "gender"
+      ? genderSides().map((s) => s.name)
+      : mode === "teams"
+        ? teamNames.slice(0, teamCount).map((n, i) => n.trim() || `Team ${String.fromCharCode(65 + i)}`)
+        : players.map((p) => p.name);
+
   /* ----- submit ----- */
 
   function handleSubmit(e: React.FormEvent) {
@@ -169,25 +252,33 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
     if (!Number.isFinite(timerSeconds) || timerSeconds < 0 || timerSeconds > 3600) {
       return setError("Set the timer between 0 and 3600 seconds, or 0 for no timer.");
     }
-    if (mode === "duel" && players.length !== 2) return setError("A 1 vs 1 needs exactly two players.");
-    if ((mode === "selected" || mode === "random") && players.length < 2) {
+    if (!reused && mode === "duel" && players.length !== 2) return setError("A 1 vs 1 needs exactly two players.");
+    if (!reused && (mode === "selected" || mode === "random") && players.length < 2) {
       return setError(mode === "random" ? "Draw at least two players first." : "Pick at least two players.");
     }
 
     let sides: GameSide[];
-    if (mode === "gender") sides = genderSides();
+    if (reused) sides = reused.sides;
+    else if (mode === "gender") sides = genderSides();
     else if (mode === "teams") sides = teamSides(teamNames.slice(0, teamCount), teamOf, players);
     else sides = individualSides(players);
+
+    // "Random" is settled here, once the sides are known. A choice that no longer exists (fewer
+    // teams than before) falls back to a random side too.
+    const first =
+      typeof firstTurn === "number" && firstTurn < sides.length ? firstTurn : Math.floor(Math.random() * Math.max(sides.length, 1));
 
     onSubmit({
       title: title.trim(),
       game,
-      mode,
+      mode: reused ? reused.mode : mode,
       sides,
       categories,
-      roundCount: game === "board" ? 0 : Math.min(roundCount, Math.max(available, 1)),
+      roundCount: game === "board" ? 0 : Math.min(roundCount, Math.max(questionCount, 1)),
       timerSeconds: Math.round(timerSeconds),
       showHints: gameHasHints(game) ? showHints : true,
+      playMode,
+      firstTurn: first,
     });
   }
 
@@ -195,7 +286,7 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <Field label="Session title">
+      <Field label={inEvent ? "Game title" : "Session title"}>
         <input value={title} onChange={(e) => setTitle(e.target.value)} className="input" required />
       </Field>
 
@@ -262,7 +353,7 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
                   <input
                     type="number"
                     min={1}
-                    max={Math.max(available, 1)}
+                    max={Math.max(questionCount, 1)}
                     value={roundCount}
                     onChange={(e) => setRoundCount(Number(e.target.value))}
                     className="input"
@@ -294,8 +385,8 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
                 {categories.length === 0
                   ? "Pick a category to see how many questions are available."
                   : game === "board"
-                    ? `The board gets one clue for each point level in each category you pick (${available} clues to draw from).`
-                    : `${available} question${available === 1 ? "" : "s"} available. Each round is picked at random and never repeats.`}
+                    ? `The board gets one clue for each point level in each category you pick (${questionCount} clues to draw from).`
+                    : `${questionCount} question${questionCount === 1 ? "" : "s"} available. Each round is picked at random and never repeats.`}
               </p>
             </div>
           </div>
@@ -305,6 +396,36 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
       {/* ---------- who plays ---------- */}
       <fieldset className="space-y-3">
         <legend className="label">Who is playing?</legend>
+
+        {reuse.length > 0 && (
+          <div className="rounded-lg border border-line bg-white p-3">
+            <p className="mb-2 text-sm text-muted">Same sides as a game already in this event? Their points are added up into one overall result.</p>
+            <div className="flex flex-wrap gap-2">
+              {reuse.map((r) => (
+                <button
+                  key={r.label}
+                  type="button"
+                  onClick={() => setReused(reused?.label === r.label ? null : r)}
+                  className={reused?.label === r.label ? "btn-primary btn-sm" : "btn-secondary btn-sm"}
+                >
+                  {r.label}
+                </button>
+              ))}
+              {reused && (
+                <button type="button" onClick={() => setReused(null)} className="btn-ghost btn-sm !text-muted">
+                  Choose different sides
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {reused ? (
+          <Notice tone="info">
+            Playing as <span className="font-semibold">{reused.label}</span>, the same sides as before.
+          </Notice>
+        ) : (
+        <>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {MODES.map((m) => (
             <label
@@ -351,9 +472,14 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
                 </Field>
               ))}
             </div>
-            <p className="text-xs text-muted">
-              Adding players is optional. Without them, the teams are just names on the scoreboard.
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={everyoneIntoTeams} disabled={available.length === 0} className="btn-secondary btn-sm">
+                {attendance ? "Add everyone present and shuffle into teams" : "Add everyone and shuffle into teams"}
+              </button>
+              <p className="text-xs text-muted">
+                Or pick players yourself below. Adding players is optional. Without them, the teams are just names on the scoreboard.
+              </p>
+            </div>
           </div>
         )}
 
@@ -363,16 +489,16 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
               <input
                 type="number"
                 min={2}
-                max={Math.max(youths.length, 2)}
+                max={Math.max(available.length, 2)}
                 value={drawCount}
                 onChange={(e) => setDrawCount(Number(e.target.value))}
                 className="input"
               />
             </Field>
-            <button type="button" onClick={draw} className="btn-secondary" disabled={youths.length === 0}>
+            <button type="button" onClick={draw} className="btn-secondary" disabled={available.length === 0}>
               {players.some((p) => !p.guest) ? "Draw again" : "Draw players"}
             </button>
-            <p className="pb-2 text-xs text-muted">Drawn from {youths.length} active youths. Guests you add stay in.</p>
+            <p className="pb-2 text-xs text-muted">Drawn from {available.length} {attendance ? "people present" : "active youths"}. Guests you add stay in.</p>
           </div>
         )}
 
@@ -446,27 +572,27 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
                     className="input mb-2 py-1.5"
                   />
                   <ul className="max-h-56 divide-y divide-line overflow-y-auto rounded-md border border-line text-sm">
-                    {shownYouths.map((y) => {
-                      const disabled = !chosen.has(y.id) && players.length >= playerCap;
+                    {shownPool.map((c) => {
+                      const disabled = !chosen.has(c.player.id) && players.length >= playerCap;
                       return (
-                        <li key={y.id}>
+                        <li key={c.player.id}>
                           <label className={`flex items-center gap-3 px-3 py-2 ${disabled ? "opacity-50" : "cursor-pointer hover:bg-mist"}`}>
                             <input
                               type="checkbox"
-                              checked={chosen.has(y.id)}
+                              checked={chosen.has(c.player.id)}
                               disabled={disabled}
-                              onChange={() => toggleYouth(y)}
+                              onChange={() => togglePlayer(c)}
                               className="h-4 w-4 accent-rccg-green-600"
                             />
-                            <span className="font-medium">{formatPersonName(y.name, y.gender)}</span>
-                            {y.unit && <span className="text-xs text-muted">{y.unit}</span>}
+                            <span className="font-medium">{c.player.name}</span>
+                            {c.unit && <span className="text-xs text-muted">{c.unit}</span>}
                           </label>
                         </li>
                       );
                     })}
-                    {shownYouths.length === 0 && (
+                    {shownPool.length === 0 && (
                       <li className="px-3 py-4 text-center text-muted">
-                        {search ? `No one matches “${search}”.` : "No active youths yet."}
+                        {search ? `No one matches “${search}”.` : attendance ? "No one is marked present yet." : "No active youths yet."}
                       </li>
                     )}
                   </ul>
@@ -521,12 +647,109 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit }: P
             )}
           </div>
         )}
+        </>
+        )}
+
+        {mode !== "gender" && (
+          <div className="rounded-lg border border-line bg-white p-3">
+            <p className="text-sm text-muted">
+              Picking from <span className="num font-semibold text-ink">{available.length}</span>{" "}
+              {attendance ? "people marked present" : "active youths"}
+              {hosts.length > 0 && <>, not counting the {hosts.length === 1 ? "host" : "hosts"} ({hosts.map((h) => h.name).join(", ")})</>}
+              {excluded.length > 0 && <>, with {excluded.length} left out</>}.
+            </p>
+            {pool.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer text-sm font-medium">Leave some people out of the picking{excluded.length > 0 ? ` (${excluded.length})` : ""}</summary>
+                <ul className="mt-2 flex max-h-44 flex-wrap gap-2 overflow-y-auto">
+                  {pool.map((c) => {
+                    const out = excluded.includes(c.player.id);
+                    return (
+                      <li key={c.player.id}>
+                        <label
+                          className={[
+                            "flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-sm",
+                            out ? "border-rccg-red-600 bg-rccg-red-50 text-rccg-red-700 line-through" : "border-line hover:border-rccg-purple-300",
+                          ].join(" ")}
+                        >
+                          <input type="checkbox" checked={out} onChange={() => toggleExcluded(c.player.id)} className="h-3.5 w-3.5 accent-rccg-red-600" />
+                          {c.player.name}
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="mt-1 text-xs text-muted">Tick someone to leave them out. They won&rsquo;t be drawn, shuffled into a team or listed for picking.</p>
+              </details>
+            )}
+          </div>
+        )}
+      </fieldset>
+
+      {/* ---------- how it is played ---------- */}
+      <fieldset className="space-y-3">
+        <legend className="label">How are questions answered?</legend>
+        {gameCanChoosePlayMode(game) ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(
+              [
+                { value: "free", title: "First to answer", description: "Whoever answers first gets the points. You tap that side." },
+                { value: "turns", title: "Turn by turn", description: "One side answers at a time. A miss can be passed on for half points, or to no one." },
+              ] as const
+            ).map((m) => (
+              <label
+                key={m.value}
+                className={[
+                  "flex cursor-pointer flex-col gap-0.5 rounded-lg border p-3 text-sm transition-colors",
+                  chosenPlayMode === m.value ? "border-rccg-green-500 bg-rccg-green-50" : "border-line bg-white hover:border-rccg-purple-300",
+                ].join(" ")}
+              >
+                <span className="flex items-center gap-2 font-medium">
+                  <input
+                    type="radio"
+                    name="play-mode"
+                    checked={chosenPlayMode === m.value}
+                    onChange={() => setChosenPlayMode(m.value)}
+                    className="accent-rccg-green-600"
+                  />
+                  {m.title}
+                </span>
+                <span className="text-xs text-muted">{m.description}</span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted">
+            {GAME_LABEL[game]} is always turn by turn. A side that misses can pass the question on for half points, or give it to no one.
+          </p>
+        )}
+
+        {playMode === "turns" && (
+          <Field
+            label={game === "board" ? "Who picks the first tile?" : "Who goes first?"}
+            hint="The next question moves on to the following side each time."
+            className="max-w-xs"
+          >
+            <select
+              value={firstTurn}
+              onChange={(e) => setFirstTurn(e.target.value === "random" ? "random" : Number(e.target.value))}
+              className="input"
+            >
+              <option value="random">Pick at random</option>
+              {sidePreview.map((name, i) => (
+                <option key={i} value={i}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
       </fieldset>
 
       {error && <Notice tone="error">{error}</Notice>}
 
       <button disabled={saving || noQuestions} className="btn-primary">
-        {saving ? "Starting…" : "Start session"}
+        {saving ? "Starting…" : (submitLabel ?? "Start session")}
       </button>
     </form>
   );

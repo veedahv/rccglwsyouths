@@ -108,3 +108,16 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Teasers: a wrong answer shakes the slots. */
+@keyframes teaser-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-12px); }
+  30% { transform: translateX(10px); }
+  45% { transform: translateX(-8px); }
+  60% { transform: translateX(6px); }
+  75% { transform: translateX(-3px); }
+}
+.animate-shake {
+  animation: teaser-shake 0.5s ease-in-out;
+}

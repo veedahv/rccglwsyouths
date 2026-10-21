@@ -5,6 +5,7 @@ import { createContribution } from "@/lib/contributions";
 import { linkEventContribution } from "@/lib/events";
 import { formatPersonName } from "@/lib/formatName";
 import { todayISO } from "@/lib/format";
+import Modal from "@/components/Modal";
 import { Field, Notice } from "@/components/ui";
 import type { ExcoMember } from "@/types";
 
@@ -17,14 +18,8 @@ interface Props {
   onCancel: () => void;
 }
 
-export default function StartEventContribution({
-  eventId,
-  eventTitle,
-  excos,
-  createdBy,
-  onCreated,
-  onCancel,
-}: Props) {
+/** Starts the contribution drive for an event, in a dialog. */
+export default function StartEventContribution({ eventId, eventTitle, excos, createdBy, onCreated, onCancel }: Props) {
   const [inChargeOf, setInChargeOf] = useState("");
   const [description, setDescription] = useState("");
   const [startDate, setStartDate] = useState(() => todayISO());
@@ -53,79 +48,73 @@ export default function StartEventContribution({
       onCreated(contributionId);
     } catch {
       setError("Couldn't start the contribution. Try again.");
-    } finally {
       setSaving(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="panel space-y-4">
-      <p className="text-sm text-muted">
-        The contribution will be titled <span className="font-semibold text-ink">“{eventTitle}”</span>,
-        the same as the event.
-      </p>
+    <Modal
+      open
+      title="Start a contribution"
+      onClose={onCancel}
+      busy={saving}
+      footer={
+        <>
+          <button type="button" onClick={onCancel} disabled={saving} className="btn-secondary">
+            Cancel
+          </button>
+          <button type="submit" form="start-contribution-form" disabled={saving} className="btn-primary">
+            {saving ? "Starting…" : "Start contribution"}
+          </button>
+        </>
+      }
+    >
+      <form id="start-contribution-form" onSubmit={handleSubmit} className="space-y-4">
+        <p className="text-sm text-muted">
+          The contribution will be titled <span className="font-semibold text-ink">“{eventTitle}”</span>, the same as the event.
+        </p>
 
-      <Field label="Description">
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={2}
-          placeholder="What's this contribution for? Any context to share."
-          className="input"
-        />
-      </Field>
-
-      <Field label="Who's in charge of collecting?">
-        <select
-          value={inChargeOf}
-          onChange={(e) => setInChargeOf(e.target.value)}
-          className="input"
-          required
-        >
-          <option value="">Select an exco…</option>
-          {excos.map((ex) => (
-            <option key={ex.id} value={ex.id}>
-              {formatPersonName(ex.name, ex.gender)}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Start date">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="input"
-            required
-          />
-        </Field>
-        <Field label="End date (optional)">
-          <input
-            type="date"
-            value={endDate}
-            min={startDate || undefined}
-            onChange={(e) => setEndDate(e.target.value)}
+        <Field label="Description (optional)">
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+            placeholder="What's this contribution for? Any context to share."
             className="input"
           />
         </Field>
-      </div>
-      <p className="hint -mt-2">
-        The end date only marks the contribution as ended. Pledges and payments can still be recorded
-        after it.
-      </p>
 
-      {error && <Notice tone="error">{error}</Notice>}
+        <Field label="Who's in charge of collecting?">
+          <select value={inChargeOf} onChange={(e) => setInChargeOf(e.target.value)} className="input">
+            <option value="">Select an exco…</option>
+            {excos.map((ex) => (
+              <option key={ex.id} value={ex.id}>
+                {formatPersonName(ex.name, ex.gender)}
+              </option>
+            ))}
+          </select>
+        </Field>
 
-      <div className="flex gap-2">
-        <button type="submit" disabled={saving} className="btn-primary btn-sm">
-          {saving ? "Starting…" : "Start contribution"}
-        </button>
-        <button type="button" onClick={onCancel} className="btn-secondary btn-sm">
-          Cancel
-        </button>
-      </div>
-    </form>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Start date">
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="input" />
+          </Field>
+          <Field label="End date (optional)">
+            <input
+              type="date"
+              value={endDate}
+              min={startDate || undefined}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="input"
+            />
+          </Field>
+        </div>
+        <p className="hint -mt-2">
+          The end date only marks the contribution as ended. Pledges and payments can still be recorded after it.
+        </p>
+
+        {error && <Notice tone="error">{error}</Notice>}
+      </form>
+    </Modal>
   );
 }

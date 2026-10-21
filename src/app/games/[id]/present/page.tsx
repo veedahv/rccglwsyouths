@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { subscribeSession } from "@/lib/games";
+import { subscribeSession, turnSide } from "@/lib/games";
 import { useRoundTimer } from "@/lib/useRoundTimer";
 import RequireAuth from "@/components/RequireAuth";
-import { FinalResult, QuizBoard, RoundView, Scoreboard } from "@/components/GameBoard";
+import HowToPlay from "@/components/HowToPlay";
+import { FinalResult, GameTag, QuizBoard, RoundView, Scoreboard } from "@/components/GameBoard";
 import { Loading, Notice } from "@/components/ui";
-import { GAME_LABEL } from "@/types/games";
+import { GAME_LABEL, hasStarted } from "@/types/games";
 import type { GameSession } from "@/types/games";
 
 // A big-screen view for a projector or TV. It only listens: the admin runs
@@ -61,6 +62,12 @@ function PresentInner() {
           <div className="flex flex-1 items-center justify-center">
             <FinalResult session={session} large />
           </div>
+        ) : !hasStarted(session) ? (
+          // Not started: only the game's name. The first question follows once the admin starts the game.
+          <div className="flex flex-1 flex-col items-center justify-center gap-8">
+            <GameTag game={session.game} large />
+            <HowToPlay session={session} large />
+          </div>
         ) : (
           <div className="flex flex-1 flex-col justify-between gap-8">
             <div className="flex flex-1 items-center justify-center">
@@ -72,7 +79,7 @@ function PresentInner() {
                 round && <RoundView session={session} round={round} large showAnswer={session.revealed} timer={timer} />
               )}
             </div>
-            <Scoreboard session={session} large pickerId={session.game === "board" ? session.sides[session.turnIndex ?? 0]?.id : undefined} />
+            <Scoreboard session={session} large pickerId={turnSide(session)?.id} pickerLabel={onBoard ? "Picks next" : "Their turn"} />
           </div>
         )}
       </div>

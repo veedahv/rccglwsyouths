@@ -3,103 +3,21 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { saveSessionChange, subscribeSession, syncOverlay, whoAmIPoints } from "@/lib/games";
+import { canPass, isTurnBased, saveSessionChange, startedByName, subscribeSession, syncOverlay, turnMultiplier, turnSide, whoAmIPoints } from "@/lib/games";
+import { setEventView, subscribeEvent, writeEventOverlay } from "@/lib/gameEvents";
+import { listExcos } from "@/lib/excos";
 import { useRoundTimer } from "@/lib/useRoundTimer";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
-import { FinalResult, QuizBoard, RoundView, Scoreboard } from "@/components/GameBoard";
+import { FinalResult, GameTag, QuizBoard, RoundView, Scoreboard } from "@/components/GameBoard";
+import ObsCard from "@/components/ObsCard";
+import HowToPlay from "@/components/HowToPlay";
 import { Page, PageHeader, Card, Badge, Loading, Notice, EmptyState } from "@/components/ui";
-import { GAME_LABEL, MODE_LABEL, gameHasHints } from "@/types/games";
-import type { GameSession } from "@/types/games";
+import { GAME_LABEL, MODE_LABEL, gameHasHints, hasStarted } from "@/types/games";
+import type { GameEvent, GameSession } from "@/types/games";
+import type { ExcoMember } from "@/types";
 
 const POINT_OPTIONS = [1, 2, 3, 5];
-
-const OVERLAY_LINKS = [
-  { label: "All in one", hint: "Round card, timer and scores together.", query: "" },
-  { label: "Round card only", hint: "The question or board. The timer sits in its corner.", query: "?show=round" },
-  { label: "Scores only", hint: "A slim row of score pills.", query: "?show=scores" },
-  { label: "Timer only", hint: "Just the countdown, to place anywhere.", query: "?show=timer" },
-];
-
-/** Links and instructions for putting this session on video in OBS. */
-function ObsCard({ session, busy, onSync }: { session: GameSession; busy: boolean; onSync: () => void }) {
-  const [copied, setCopied] = useState<string | null>(null);
-  const base = session.overlayKey && typeof window !== "undefined" ? `${window.location.origin}/overlay/${session.overlayKey}` : null;
-
-  async function copy(label: string, url: string) {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(label);
-      setTimeout(() => setCopied((c) => (c === label ? null : c)), 2000);
-    } catch {
-      // Clipboard can be blocked; the link is selectable in the box.
-    }
-  }
-
-  return (
-    <Card
-      title="Record or stream with OBS"
-      description="Private links that show this game on your video. They need no sign-in, and they only ever show what is on screen right now."
-      className="mt-6"
-    >
-      {!base ? (
-        <div className="space-y-2">
-          <p className="text-sm text-muted">This session was created before overlays existed. Create its overlay link to use it in OBS.</p>
-          <button disabled={busy} onClick={onSync} className="btn-secondary">
-            Create overlay link
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <ul className="space-y-3">
-            {OVERLAY_LINKS.map(({ label, hint, query }) => {
-              const url = base + query;
-              return (
-                <li key={label}>
-                  <p className="text-sm font-medium">
-                    {label} <span className="font-normal text-muted">· {hint}</span>
-                  </p>
-                  <div className="mt-1 flex gap-2">
-                    <input readOnly value={url} onFocus={(e) => e.currentTarget.select()} aria-label={`${label} link`} className="input font-mono text-xs" />
-                    <button type="button" onClick={() => copy(label, url)} className="btn-secondary shrink-0">
-                      {copied === label ? "Copied" : "Copy"}
-                    </button>
-                    <a href={url} target="_blank" rel="noreferrer" className="btn-ghost shrink-0">
-                      Preview
-                    </a>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-
-          <details className="rounded-lg border border-line bg-white p-3 text-sm">
-            <summary className="cursor-pointer font-medium">How to set it up in OBS</summary>
-            <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-muted">
-              <li>In OBS, add a source: <span className="text-ink">Browser</span>. Paste a link above.</li>
-              <li>Set Width to <span className="text-ink">1920</span> and Height to <span className="text-ink">1080</span>. Leave the custom CSS as it is.</li>
-              <li>Untick <span className="text-ink">Shutdown source when not visible</span> and <span className="text-ink">Refresh browser when scene becomes active</span> so it stays live between scenes.</li>
-              <li>Put it above your camera in the scene. The page is transparent, so only the card and scores show.</li>
-              <li>Run the game from this page on your phone or another device. The overlay follows every tap within a moment.</li>
-            </ol>
-            <p className="mt-3 text-muted">
-              Add <code>&amp;position=top</code> or <code>&amp;position=center</code> to move it, <code>&amp;size=compact</code> for a smaller
-              card, or <code>&amp;scale=0.8</code> to shrink everything. If your camera lags behind the graphics (phone webcams often do),
-              add a <span className="text-ink">Render Delay</span> filter to the overlay source and match the delay.
-            </p>
-          </details>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button disabled={busy} onClick={onSync} className="btn-ghost btn-sm">
-              Resync overlay
-            </button>
-            <p className="text-xs text-muted">Anyone with a link can see what is on screen, so keep it to yourself. Deleting the session turns its links off.</p>
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-}
 
 function RunInner() {
   const { id } = useParams<{ id: string }>();
@@ -113,7 +31,25 @@ function RunInner() {
   const [takeAway, setTakeAway] = useState(false);
   const [busy, setBusy] = useState(false);
   const [overlayProblem, setOverlayProblem] = useState(false);
+  const [excos, setExcos] = useState<ExcoMember[]>([]);
+  // The games event this game belongs to, if any. Its screen and overlay are shared by every game in it.
+  const [event, setEvent] = useState<GameEvent | null>(null);
+  const eventId = session?.eventId;
   const timer = useRoundTimer(session);
+
+  useEffect(() => {
+    if (!eventId) return setEvent(null);
+    return subscribeEvent(eventId, setEvent, () => setEvent(null));
+  }, [eventId]);
+
+  // Only sessions made before names were saved need the excos list to show who started them.
+  const needsName = !!session && !session.createdByName;
+  useEffect(() => {
+    if (!needsName) return;
+    listExcos()
+      .then(setExcos)
+      .catch(() => {});
+  }, [needsName]);
 
   useEffect(() => {
     const unsub = subscribeSession(
@@ -180,6 +116,32 @@ function RunInner() {
     }
   }
 
+  async function showOnEventScreen() {
+    if (!session || !event) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { overlayOk } = await setEventView(event, "game", session.id);
+      setOverlayProblem(!overlayOk);
+    } catch {
+      setError("Couldn't change the screen. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSyncEventOverlay() {
+    if (!event) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { overlayOk } = await writeEventOverlay(event);
+      setOverlayProblem(!overlayOk);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading) {
     return (
       <Page>
@@ -209,9 +171,13 @@ function RunInner() {
   const round = session.currentRound >= 0 ? session.rounds[session.currentRound] : undefined;
   const isLast = session.currentRound >= session.rounds.length - 1;
   const finished = session.status === "finished";
+  const started = hasStarted(session);
   const awarded = round?.awards ?? {};
   const allPlayed = isBoard && session.rounds.every((r) => r.played);
-  const pickerId = isBoard ? session.sides[session.turnIndex ?? 0]?.id : undefined;
+  const turns = isTurnBased(session);
+  const turnNow = turnSide(session);
+  const sideCount = Math.max(session.sides.length, 1);
+  const pickerId = turnNow?.id;
 
   // Quiz board tiles and Who Am I? rounds are worth a fixed number of points,
   // so the admin doesn't choose; every other game uses the Points setting.
@@ -222,6 +188,36 @@ function RunInner() {
       : session.game === "whoAmI"
         ? whoAmIPoints(session, round)
         : null;
+
+  // Turn by turn: a question is worth full points to the side it started with, and half once passed on.
+  const basePoints = autoPoints ?? pointValue;
+  const turnPoints = basePoints * turnMultiplier(session);
+  const shownAuto = autoPoints === null ? null : autoPoints * (turns ? turnMultiplier(session) : 1);
+  const passTo = session.sides[((session.turnIndex ?? 0) + 1) % sideCount];
+
+  /** The side whose turn it is got it right. */
+  function turnCorrect() {
+    if (!session || !round || !turnNow || finished) return;
+    const rounds = session.rounds.map((r, i) =>
+      i === session.currentRound ? { ...r, awards: { ...r.awards, [turnNow.id]: turnPoints } } : r
+    );
+    run({ rounds, revealed: true, ...pauseIfRunning() });
+  }
+
+  /** They missed: hand the question to the next side for half points, with a fresh countdown. */
+  function turnPass() {
+    if (!session) return;
+    run({
+      turnIndex: ((session.turnIndex ?? 0) + 1) % sideCount,
+      passes: (session.passes ?? 0) + 1,
+      ...timerFields(timer.enabled ? "running" : "idle", timer.total),
+    });
+  }
+
+  /** They missed and nobody else gets a go: show the answer and award nothing. */
+  function turnNobody() {
+    run({ revealed: true, ...pauseIfRunning() });
+  }
 
   function award(sideId: string) {
     if (!session || !round || finished) return;
@@ -246,11 +242,20 @@ function RunInner() {
   function clearRoundPoints() {
     if (!session) return;
     const rounds = session.rounds.map((r, i) => (i === session.currentRound ? { ...r, awards: {} } : r));
-    run({ rounds });
+    // Turn by turn: hide the answer again so the turn buttons come back.
+    run({ rounds, ...(turns ? { revealed: false } : {}) });
   }
 
   function goTo(index: number) {
+    // Turn by turn: each round starts with the next side along (or the one before, going back).
+    let turnFields = {};
+    if (turns && !isBoard) {
+      const step = index > session!.currentRound ? 1 : -1;
+      const start = (((session!.turnStart ?? 0) + step) % sideCount + sideCount) % sideCount;
+      turnFields = { turnStart: start, turnIndex: start, passes: 0 };
+    }
     run({
+      ...turnFields,
       currentRound: Math.min(Math.max(index, 0), session!.rounds.length - 1),
       revealed: false,
       // Who Am I? starts every round with its first clue showing.
@@ -268,18 +273,28 @@ function RunInner() {
 
   /** Quiz board: open a tile. Its countdown starts straight away. */
   function pickTile(index: number) {
-    run({ currentRound: index, revealed: false, ...timerFields(timer.enabled ? "running" : "idle", timer.total) });
+    run({
+      currentRound: index,
+      revealed: false,
+      // Turn by turn: the side that picked the tile gets the first go at it.
+      ...(turns ? { turnStart: session?.turnIndex ?? 0, passes: 0 } : {}),
+      ...timerFields(timer.enabled ? "running" : "idle", timer.total),
+    });
   }
 
   /** Quiz board: close the tile (it is marked as played) and hand the pick to the next side. */
   function backToBoard() {
     if (!session) return;
     const rounds = session.rounds.map((r, i) => (i === session.currentRound ? { ...r, played: true } : r));
+    // Turn by turn: the pick moves on from whoever picked this tile, even if it was passed to someone else.
+    const from = turns ? session.turnStart ?? session.turnIndex ?? 0 : session.turnIndex ?? 0;
+    const next = (from + 1) % sideCount;
     run({
       rounds,
       currentRound: -1,
       revealed: false,
-      turnIndex: ((session.turnIndex ?? 0) + 1) % Math.max(session.sides.length, 1),
+      turnIndex: next,
+      ...(turns ? { turnStart: next, passes: 0 } : {}),
       ...timerFields("idle", timer.total),
     });
   }
@@ -294,21 +309,34 @@ function RunInner() {
     run({ status: "finished", finishedAt: new Date().toISOString(), revealed: true });
   }
 
+  /**
+   * Starting the game puts the first question (or, on a quiz board, the board)
+   * on the big screen and the overlay. The countdown starts with it, the same
+   * as when moving on to the next round.
+   */
+  function startGame() {
+    run({ started: true, ...timerFields(!isBoard && timer.enabled ? "running" : "idle", timer.total) });
+  }
+
+  const onEventScreen = !!event && event.view === "game" && event.activeSessionId === session.id;
+  const backHref = session.eventId ? `/games/events/${session.eventId}` : "/games";
+  const presentHref = session.eventId ? `/games/events/${session.eventId}/present` : `/games/${session.id}/present`;
+
   const hasAwards = Object.values(awarded).some((n) => n !== 0);
 
   return (
     <Page size="lg">
       <PageHeader
-        backHref="/games"
-        backLabel="All games"
+        backHref={backHref}
+        backLabel={event ? event.title : "All games"}
         title={session.title}
-        description={`${GAME_LABEL[session.game]} · ${MODE_LABEL[session.mode]}`}
+        description={`${GAME_LABEL[session.game]} · ${MODE_LABEL[session.mode]}${turns ? " · Turn by turn" : ""}${startedByName(session, excos) ? ` · Started by ${startedByName(session, excos)}` : ""}`}
         actions={
           <>
-            <Badge tone={finished ? "gray" : "green"} dot={!finished}>
-              {finished ? "Finished" : "Live"}
+            <Badge tone={finished ? "gray" : started ? "green" : "amber"} dot={!finished}>
+              {finished ? "Finished" : started ? "Live" : "Not started"}
             </Badge>
-            <Link href={`/games/${session.id}/present`} target="_blank" className="btn-secondary">
+            <Link href={presentHref} target="_blank" className="btn-secondary">
               Open big-screen view
             </Link>
           </>
@@ -326,6 +354,16 @@ function RunInner() {
           deployed, then use &ldquo;Resync overlay&rdquo; at the bottom of this page.
         </Notice>
       )}
+      {event && canControl && !onEventScreen && (
+        <Notice tone="info" className="mb-4">
+          <span className="flex flex-wrap items-center justify-between gap-2">
+            <span>This game isn&rsquo;t on the big screen or the overlay yet. They are showing {event.view === "game" ? "another game" : event.view === "cover" ? "the cover" : "the standings"}.</span>
+            <button disabled={busy} onClick={showOnEventScreen} className="btn-primary btn-sm">
+              Show this game on screen
+            </button>
+          </span>
+        </Notice>
+      )}
       {!canControl && (
         <Notice tone="info" className="mb-4">
           You can watch this session, but only excos who manage events can run it.
@@ -341,9 +379,27 @@ function RunInner() {
                 Reopen session
               </button>
             )}
-            <Link href="/games" className="btn-primary">
-              Back to games
+            <Link href={backHref} className="btn-primary">
+              {event ? "Back to the event" : "Back to games"}
             </Link>
+          </div>
+        </Card>
+      ) : !started ? (
+        <Card title="Ready to start?">
+          <div className="flex flex-col items-center gap-4 py-2 text-center">
+            <GameTag game={session.game} />
+            <HowToPlay session={session} />
+            <p className="max-w-md text-sm text-muted">
+              The big screen shows the game name and these rules. The OBS overlay shows only the name.{" "}
+              {canControl
+                ? `Start the game to show ${isBoard ? "the board" : "the first question"}${!isBoard && timer.enabled ? " and start the countdown" : ""}.`
+                : "The game hasn't been started yet."}
+            </p>
+            {canControl && (
+              <button disabled={busy} onClick={startGame} className="btn-primary">
+                Start game
+              </button>
+            )}
           </div>
         </Card>
       ) : onBoard ? (
@@ -463,15 +519,46 @@ function RunInner() {
             )}
           </Card>
 
+          {canControl && turns && (
+            <Card
+              title={`${turnNow?.name ?? "No one"}\u2019s turn`}
+              description={
+                (session.passes ?? 0) > 0
+                  ? "This question was passed on, so it is worth half points."
+                  : isBoard
+                    ? "Picked the tile. If they miss, you can pass it on for half points."
+                    : "If they miss, you can pass it on for half points."
+              }
+            >
+              {session.revealed ? (
+                <p className="text-sm text-muted">This one is done. Move on when you are ready.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <button disabled={busy || !turnNow} onClick={turnCorrect} className="btn-primary">
+                    Correct · {turnNow?.name} +{turnPoints}
+                  </button>
+                  {canPass(session) && (
+                    <button disabled={busy} onClick={turnPass} className="btn-secondary">
+                      Missed · pass to {passTo?.name} (half, {basePoints / 2})
+                    </button>
+                  )}
+                  <button disabled={busy} onClick={turnNobody} className="btn-secondary">
+                    Missed · no points to anyone
+                  </button>
+                </div>
+              )}
+            </Card>
+          )}
+
           <Card
             title="Scoreboard"
-            description={canControl ? "Tap a side to give it points. Awarding points also reveals the answer." : undefined}
+            description={canControl ? (turns ? "Points are given with the buttons above." : "Tap a side to give it points. Awarding points also reveals the answer.") : undefined}
             action={
               canControl && (
                 <div className="flex flex-wrap items-center gap-2 text-sm">
-                  {autoPoints !== null ? (
+                  {shownAuto !== null ? (
                     <span className="text-muted">
-                      {isBoard ? `This tile is worth ${autoPoints}` : `Worth ${autoPoints} right now`}
+                      {isBoard ? `This tile is worth ${shownAuto}` : `Worth ${shownAuto} right now`}
                     </span>
                   ) : (
                     <label className="flex items-center gap-1.5">
@@ -485,15 +572,23 @@ function RunInner() {
                       </select>
                     </label>
                   )}
+                  {!turns && (
                   <label className="flex cursor-pointer items-center gap-1.5">
                     <input type="checkbox" checked={takeAway} onChange={(e) => setTakeAway(e.target.checked)} className="accent-rccg-red-600" />
                     <span className={takeAway ? "font-medium text-rccg-red-600" : "text-muted"}>{isBoard ? "Wrong answer (lose points)" : "Take away"}</span>
                   </label>
+                  )}
                 </div>
               )
             }
           >
-            <Scoreboard session={session} onSideClick={canControl && !busy ? award : undefined} awardedThisRound={awarded} pickerId={pickerId} />
+            <Scoreboard
+              session={session}
+              onSideClick={canControl && !busy && !turns ? award : undefined}
+              awardedThisRound={awarded}
+              pickerId={pickerId}
+              pickerLabel={turns ? "Their turn" : "Picks next"}
+            />
             {canControl && hasAwards && (
               <button disabled={busy} onClick={clearRoundPoints} className="btn-ghost-danger mt-3">
                 Clear this round's points
@@ -510,8 +605,17 @@ function RunInner() {
           )}
         </div>
       )}
-      {canControl && (
-        <ObsCard session={session} busy={busy} onSync={handleSyncOverlay} />
+      {canControl && !session.eventId && (
+        <ObsCard overlayKey={session.overlayKey} busy={busy} onSync={handleSyncOverlay} />
+      )}
+      {canControl && event && (
+        <ObsCard
+          overlayKey={event.overlayKey}
+          busy={busy}
+          onSync={handleSyncEventOverlay}
+          subject={`${event.title}`}
+          deleteNote="These links are shared by every game in the event, so they stay the same all day. Deleting the event turns them off."
+        />
       )}
     </Page>
   );

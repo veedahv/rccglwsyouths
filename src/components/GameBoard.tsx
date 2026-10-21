@@ -1,10 +1,28 @@
 "use client";
 
-import { rankSides, whoAmIPoints, winners } from "@/lib/games";
+import { isTurnBased, rankSides, turnSide, whoAmIPoints, winners } from "@/lib/games";
 import { Badge } from "@/components/ui";
-import { BLANK, gameHasHints } from "@/types/games";
+import { BLANK, GAME_LABEL, gameHasHints } from "@/types/games";
 import type { RoundTimer } from "@/lib/useRoundTimer";
 import type { GameRound, GameSession } from "@/types/games";
+
+/**
+ * What the big screen and the overlay show before a game starts: just a tag
+ * with the game's name. The first question appears once the admin starts the game.
+ */
+export function GameTag({ game, large }: { game: GameSession["game"]; large?: boolean }) {
+  return (
+    <p
+      role="status"
+      className={[
+        "inline-block max-w-full rounded-md text-rccg-purple-700 text-center font-display font-bold bg-white shadow-lg capitalize",
+        large ? "px-8 py-6 text-10xl sm:px-12 sm:py-8 sm:text-6xl" : "px-5 py-3 text-2xl sm:text-3xl",
+      ].join(" ")}
+    >
+      {GAME_LABEL[game]}
+    </p>
+  );
+}
 
 /** The scrambled letters, spaced out so each tile is easy to read from across a room. */
 function LetterTiles({ text, large }: { text: string; large?: boolean }) {
@@ -12,7 +30,7 @@ function LetterTiles({ text, large }: { text: string; large?: boolean }) {
   return (
     <div className="flex flex-wrap justify-center gap-x-8 gap-y-3">
       {words.map((word, wi) => (
-        <div key={wi} className="flex gap-1.5 sm:gap-2">
+        <div key={wi} className="flex flex-wrap justify-center gap-1.5 sm:gap-2">
           {word.split("").map((ch, i) => (
             <span
               key={i}
@@ -137,6 +155,20 @@ function VerseWithBlanks({ text, large }: { text: string; large?: boolean }) {
   );
 }
 
+/** Whose turn it is, and a reminder that a passed question is worth half. Shown above the question. */
+function TurnBanner({ session, large }: { session: GameSession; large?: boolean }) {
+  const side = turnSide(session);
+  if (!side) return null;
+  const passed = (session.passes ?? 0) > 0;
+  return (
+    <p className={`flex flex-wrap items-center justify-center gap-2 font-display font-semibold text-rccg-purple-700 ${large ? "text-3xl" : "text-lg"}`}>
+      <span aria-hidden="true">▶</span>
+      {side.name}&rsquo;s turn
+      {passed && <Badge tone="amber">Passed on · half points</Badge>}
+    </p>
+  );
+}
+
 /** What is on screen for the current round. Used by both the run screen and the projector. */
 export function RoundView({ session, round, large, showAnswer, showHint, timer }: RoundProps) {
   const game = session.game;
@@ -157,18 +189,26 @@ export function RoundView({ session, round, large, showAnswer, showHint, timer }
         : round.answer;
 
   return (
-    <div className="relative space-y-5 text-center">
-      {timer?.enabled && <TimerBadge timer={timer} large={large} />}
+    <div className="space-y-5 text-center">
+      {/* The timer has its own row above the content, so it can never sit on top of the text. */}
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+          {game === "board"
+            ? `${round.category} · ${round.value ?? 0} points`
+            : `Round ${session.currentRound + 1} of ${session.rounds.length} · ${round.category}`}
+        </p>
+        {timer?.enabled && <TimerBadge timer={timer} large={large} inline />}
+      </div>
 
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-        {game === "board"
-          ? `${round.category} · ${round.value ?? 0} points`
-          : `Round ${session.currentRound + 1} of ${session.rounds.length} · ${round.category}`}
-      </p>
+      {isTurnBased(session) && <TurnBanner session={session} large={large} />}
 
       {game === "scramble" && <LetterTiles text={round.prompt} large={large} />}
 
-      {game === "emoji" && (
+      {game === "bookGuess" && (
+        <p className={`font-display font-semibold text-rccg-green-700 ${large ? "text-3xl" : "text-lg"}`}>Which book of the Bible?</p>
+      )}
+
+      {(game === "emoji" || game === "bookGuess") && (
         <p
           className={`mx-auto max-w-4xl break-words leading-tight ${large ? "text-7xl sm:text-9xl" : "text-5xl sm:text-7xl"}`}
           aria-label="Emoji clue"
@@ -225,11 +265,13 @@ interface ScoreProps {
   /** Called when a side is tapped (the run screen uses this to award points). */
   onSideClick?: (sideId: string) => void;
   awardedThisRound?: Record<string, number>;
-  /** Quiz board: the side whose turn it is to pick the next tile. */
+  /** The side whose turn it is: to pick the next tile on a quiz board, or to answer. */
   pickerId?: string;
+  /** What the badge on that side says. Defaults to "Picks next". */
+  pickerLabel?: string;
 }
 
-export function Scoreboard({ session, large, onSideClick, awardedThisRound, pickerId }: ScoreProps) {
+export function Scoreboard({ session, large, onSideClick, awardedThisRound, pickerId, pickerLabel = "Picks next" }: ScoreProps) {
   const ranked = rankSides(session);
   // Keep sides in their set-up order while playing so cards don't jump around;
   // the ranking number is still shown.
@@ -250,7 +292,7 @@ export function Scoreboard({ session, large, onSideClick, awardedThisRound, pick
                 {side.name}
               </p>
               <span className="flex shrink-0 gap-1">
-                {pickerId === side.id && <Badge tone="purple">Picks next</Badge>}
+                {pickerId === side.id && <Badge tone="purple">{pickerLabel}</Badge>}
                 {leading && <Badge tone="green">Leading</Badge>}
               </span>
             </div>
@@ -318,11 +360,13 @@ export function QuizBoard({
   session,
   large,
   onPick,
+  showRound = true
 }: {
   session: GameSession;
   large?: boolean;
   /** Called with a round index when a tile is chosen. Omit for a read-only board. */
   onPick?: (roundIndex: number) => void;
+  showRound?: boolean
 }) {
   const categories = session.boardCategories ?? [];
   const values = session.boardValues ?? [];
@@ -381,7 +425,7 @@ export function ScoreStrip({ session, large }: { session: GameSession; large?: b
   const ranked = rankSides(session);
   const best = ranked[0]?.points ?? 0;
   const pointsOf = new Map(ranked.map((r) => [r.side.id, r.points]));
-  const pickerId = session.game === "board" ? session.sides[session.turnIndex ?? 0]?.id : undefined;
+  const pickerId = turnSide(session)?.id;
 
   return (
     <ul className="flex flex-wrap justify-center gap-3">
@@ -397,7 +441,7 @@ export function ScoreStrip({ session, large }: { session: GameSession; large?: b
               leading ? "ring-4 ring-rccg-green-500" : "",
             ].join(" ")}
           >
-            {pickerId === side.id && <span aria-label="Picks next">▶</span>}
+            {pickerId === side.id && <span aria-label="Their turn">▶</span>}
             <span className="max-w-[14ch] truncate font-display font-semibold">{side.name}</span>
             <span className="num rounded-full bg-white px-3 font-display font-bold text-rccg-purple-800">{points}</span>
           </li>

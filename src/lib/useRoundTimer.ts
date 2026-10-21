@@ -17,7 +17,9 @@ export interface RoundTimer {
  * change, and only restarts its count when the counter changes, so points
  * being awarded mid-countdown never nudge the clock.
  */
-export function useRoundTimer(session: GameSession | null): RoundTimer {
+export function useRoundTimer(
+  session: ({ id?: string } & Pick<GameSession, "timerSeconds" | "timerState" | "timerRemaining" | "timerSeq">) | null
+): RoundTimer {
   const total = session?.timerSeconds ?? 0;
   const state: TimerState = session?.timerState ?? "idle";
   const base = session?.timerRemaining ?? total;

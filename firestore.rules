@@ -173,6 +173,13 @@ service cloud.firestore {
         allow read: if isExco();
         allow write: if hasPermission('canEditEvents');
       }
+
+      // What was actually spent on the event. Whoever plans the event or
+      // handles the money can record it; every exco can read it.
+      match /expenses/{expenseId} {
+        allow read: if isExco();
+        allow write: if hasPermission('canEditEvents') || hasPermission('canEditFinance');
+      }
     }
 
     // Game nights. Any exco can read the question bank and watch a session
@@ -181,6 +188,24 @@ service cloud.firestore {
     // the same as events. Sessions keep their own frozen copy of each
     // question, so editing the bank never changes a game already played.
     match /gameQuestions/{questionId} {
+      allow read: if isExco();
+      allow write: if hasPermission('canEditEvents');
+    }
+
+    // Teasers (quick name-as-many-as-you-can games) and each play of one.
+    match /gameTeasers/{teaserId} {
+      allow read: if isExco();
+      allow write: if hasPermission('canEditEvents');
+    }
+
+    match /gameRuns/{runId} {
+      allow read: if isExco();
+      allow write: if hasPermission('canEditEvents');
+    }
+
+    // A games event: one occasion (e.g. "Games Day") that holds several games.
+    // Each game is a /gameSessions document with its eventId set.
+    match /gameEvents/{eventId} {
       allow read: if isExco();
       allow write: if hasPermission('canEditEvents');
     }
