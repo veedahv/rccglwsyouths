@@ -550,3 +550,105 @@ export const BOOK_GUESS_STARTER: Record<string, BookGuessEntry[]> = {
     ["✉️🏃‍♂️🤝", "Philemon", "Paul pleads for the runaway Onesimus (Philemon)"],
   ],
 };
+
+// Bible Couples: [person, spouse, reference]. The category is the Testament. Only couples with one
+// clear answer are used (no Jacob's wives or Solomon), and no name appears twice.
+type CoupleEntry = [person: string, spouse: string, reference: string];
+
+export const SPOUSES_STARTER: Record<string, CoupleEntry[]> = {
+  "Old Testament": [
+    ["Adam", "Eve", "Genesis 2:22-25"],
+    ["Abraham", "Sarah", "Genesis 17:15"],
+    ["Isaac", "Rebekah", "Genesis 24:67"],
+    ["Moses", "Zipporah", "Exodus 2:21"],
+    ["Elimelech", "Naomi", "Ruth 1:2"],
+    ["Boaz", "Ruth", "Ruth 4:13"],
+    ["Amram", "Jochebed", "Exodus 6:20"],
+    ["Nabal", "Abigail", "1 Samuel 25:3"],
+    ["Ahab", "Jezebel", "1 Kings 16:31"],
+    ["Hosea", "Gomer", "Hosea 1:3"],
+    ["Ahasuerus", "Esther", "Esther 2:17"],
+  ],
+  "New Testament": [
+    ["Joseph", "Mary", "Matthew 1:18-20"],
+    ["Zechariah", "Elizabeth", "Luke 1:5"],
+    ["Aquila", "Priscilla", "Acts 18:2"],
+    ["Ananias", "Sapphira", "Acts 5:1"],
+    ["Felix", "Drusilla", "Acts 24:24"],
+  ],
+};
+
+// Name the Spouse: [person, spouse(s), reference]. Unlike Bible Couples, messy cases are fine here:
+// list every correct answer, separated by commas, and any of them counts.
+export const SPOUSE_QUIZ_STARTER: Record<string, CoupleEntry[]> = {
+  "Old Testament": [
+    ["Adam", "Eve", "Genesis 2:22-25"],
+    ["Sarah", "Abraham", "Genesis 17:15"],
+    ["Isaac", "Rebekah", "Genesis 24:67"],
+    ["Jacob", "Rachel, Leah", "Genesis 29:21-30"],
+    ["Moses", "Zipporah", "Exodus 2:21"],
+    ["Naomi", "Elimelech", "Ruth 1:2"],
+    ["Ruth", "Boaz", "Ruth 4:13"],
+    ["Elkanah", "Hannah, Peninnah", "1 Samuel 1:2"],
+    ["David", "Michal, Abigail, Bathsheba, Ahinoam", "1 Samuel 18:27, 25:42, 2 Samuel 11:27"],
+    ["Ahab", "Jezebel", "1 Kings 16:31"],
+    ["Hosea", "Gomer", "Hosea 1:3"],
+    ["Esther", "Ahasuerus", "Esther 2:17"],
+  ],
+  "New Testament": [
+    ["Mary", "Joseph", "Matthew 1:18-20"],
+    ["Zechariah", "Elizabeth", "Luke 1:5"],
+    ["Priscilla", "Aquila", "Acts 18:2"],
+    ["Ananias", "Sapphira", "Acts 5:1"],
+    ["Felix", "Drusilla", "Acts 24:24"],
+    ["Herod Antipas", "Herodias", "Mark 6:17"],
+  ],
+};
+
+// Bible Relay: [reference, points]. The category is the difficulty. Easy references are ones
+// most people know; Hard ones sit in the small books at the back of the Old Testament and the
+// short letters, where finding the book is half the race.
+type RelayEntry = [reference: string, points: number];
+
+export const RELAY_STARTER: Record<string, RelayEntry[]> = {
+  Easy: [
+    ["Genesis 1:1", 1],
+    ["John 3:16", 1],
+    ["Psalm 23:1", 1],
+    ["John 11:35", 1],
+    ["Philippians 4:13", 1],
+    ["Romans 3:23", 1],
+    ["Proverbs 3:5", 1],
+    ["Matthew 28:19", 1],
+    ["Exodus 20:3", 1],
+    ["Jeremiah 29:11", 1],
+  ],
+  Medium: [
+    ["Joshua 1:9", 2],
+    ["Isaiah 40:31", 2],
+    ["Romans 8:28", 2],
+    ["Ephesians 2:8", 2],
+    ["Galatians 5:22", 2],
+    ["Hebrews 11:1", 2],
+    ["James 1:5", 2],
+    ["1 Corinthians 13:4", 2],
+    ["Psalm 119:105", 2],
+    ["Micah 6:8", 2],
+    ["Matthew 6:33", 2],
+    ["2 Timothy 3:16", 2],
+  ],
+  Hard: [
+    ["Nahum 1:7", 3],
+    ["Habakkuk 2:4", 3],
+    ["Zephaniah 3:17", 3],
+    ["Obadiah 1:15", 3],
+    ["Malachi 3:10", 3],
+    ["Haggai 2:9", 3],
+    ["Lamentations 3:22", 3],
+    ["Ecclesiastes 3:1", 3],
+    ["Amos 5:24", 3],
+    ["Joel 2:28", 3],
+    ["Jude 1:24", 3],
+    ["3 John 1:4", 3],
+  ],
+};

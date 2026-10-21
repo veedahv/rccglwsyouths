@@ -66,6 +66,39 @@ export function howToPlay(session: Pick<GameSession, "game" | "playMode" | "time
           `There are ${plural(session.rounds.length, "round")}. The side with the most points wins.`,
         ],
       };
+    case "spouseQuiz":
+      return {
+        summary: "A Bible person is named. Who was their husband or wife?",
+        steps: [
+          "A name appears on the screen.",
+          "Name their husband or wife. Some people had more than one, and any correct answer counts.",
+          ...answering,
+          ...(timer ? [timer] : []),
+          `There are ${plural(session.rounds.length, "round")}. The side with the most points wins.`,
+        ],
+      };
+    case "relay":
+      return {
+        summary: "A race to find the verse in the Bible.",
+        steps: [
+          "Each team pairs up: a front player who can see the Bible, and a back player who opens it with their hands, guided by the one in front.",
+          "The host calls out a book, chapter and verse. The clock starts the moment it is called.",
+          "The first team to find the verse wins the points. Harder verses are worth more.",
+          ...(timer ? [timer] : []),
+          `There are ${plural(session.rounds.length, "verse")} to find, starting easy and getting harder. The team with the most points wins.`,
+        ],
+      };
+    case "spouses":
+      return {
+        summary: "A memory game. Find the Bible couples hidden under the cards.",
+        steps: [
+          "Every card hides the name of someone in the Bible. Each name has a husband or wife hidden somewhere else.",
+          `Sides take turns, one after another${sideList ? `: ${sideList}` : ""}. On your turn, call out two cards to flip.`,
+          "If the two names are a couple, you win a point and the pair stays face up.",
+          "If not, everyone sees both cards, then they are turned back over. Remember where they are.",
+          `There are ${plural(session.rounds.length, "couple")} to find. The side with the most points wins.`,
+        ],
+      };
     case "bookGuess":
       return {
         summary: "A picture clue points to a book of the Bible. Which book is it?",

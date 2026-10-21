@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { TimerBadge } from "@/components/GameBoard";
+import Confetti from "@/components/Confetti";
+import PresentFrame from "@/components/PresentFrame";
 import { TeaserSlots, useFlash } from "@/components/TeaserParts";
 import { useRoundTimer } from "@/lib/useRoundTimer";
 import type { TeaserRun } from "@/types/teasers";
@@ -23,28 +24,21 @@ export default function TeaserScreen({ run, exitHref }: { run: TeaserRun; exitHr
   const all = named === run.slotCount;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-mist">
-      <div className="mx-auto flex min-h-full max-w-6xl flex-col gap-6 px-6 py-6 sm:px-10">
-        <header className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-rccg-green-700">Teaser · {run.title}</p>
-            <h1 className="mt-1 font-display text-4xl font-black leading-tight text-rccg-purple-800 sm:text-6xl">{run.prompt}</h1>
-          </div>
-          <div className="flex shrink-0 flex-col items-end gap-2">
-            {timer.enabled && <TimerBadge timer={timer} large inline />}
-            <Link href={exitHref} className="btn-ghost !text-muted">
-              Exit
-            </Link>
-          </div>
-        </header>
-
+    <PresentFrame
+      title={run.prompt}
+      subtitle={`Teaser · ${run.title}`}
+      exitHref={exitHref}
+      right={timer.enabled ? <TimerBadge timer={timer} large inline /> : undefined}
+    >
+      {ended && all && <Confetti />}
+      <div className="flex flex-1 flex-col gap-6">
         <div className="flex items-center justify-between text-xl text-muted">
           <p>
-            <span className="num font-display text-3xl font-bold text-rccg-purple-700">{named}</span> of{" "}
+            <span className="num font-display text-4xl font-bold text-rccg-purple-700">{named}</span> of{" "}
             <span className="num font-semibold">{run.slotCount}</span> named
           </p>
           {flash?.kind === "dup" && (
-            <p role="status" className="rounded-full bg-amber-100 px-5 py-1.5 font-display text-2xl font-semibold text-amber-900">
+            <p role="status" className="animate-pop rounded-full bg-amber-100 px-5 py-1.5 font-display text-2xl font-semibold text-amber-900">
               Already named: {flash.text}
             </p>
           )}
@@ -60,6 +54,6 @@ export default function TeaserScreen({ run, exitHref }: { run: TeaserRun; exitHr
           <TeaserSlots run={run} ended={ended} large flash={flash} />
         </div>
       </div>
-    </div>
+    </PresentFrame>
   );
 }

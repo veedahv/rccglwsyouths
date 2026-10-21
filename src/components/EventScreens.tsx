@@ -3,7 +3,9 @@
 import type { CSSProperties, ReactNode } from "react";
 import Logo from "@/components/Logo";
 import HowToPlay from "@/components/HowToPlay";
-import { FinalResult, GameTag, QuizBoard, RoundView, Scoreboard } from "@/components/GameBoard";
+import CoupleGrid from "@/components/CoupleGrid";
+import { GameTag, QuizBoard, RoundView, Scoreboard } from "@/components/GameBoard";
+import { GameResult } from "@/components/ResultCard";
 import { GAME_LABEL, hasStarted } from "@/types/games";
 import { turnSide } from "@/lib/games";
 import type { RoundTimer } from "@/lib/useRoundTimer";
@@ -46,9 +48,9 @@ function DecorShape({ kind }: { kind: string }) {
       return (
         <svg viewBox="0 0 100 100" className="h-full w-full">
           <circle cx="50" cy="50" r="48" fill={fill} />
-          <circle cx="35" cy="40" r="6" fill="#180C62" />
-          <circle cx="65" cy="40" r="6" fill="#180C62" />
-          <path d="M28 60 Q50 82 72 60" stroke="#180C62" strokeWidth="7" strokeLinecap="round" fill="none" />
+          <circle cx="35" cy="40" r="6" fill="var(--decor-cut)" />
+          <circle cx="65" cy="40" r="6" fill="var(--decor-cut)" />
+          <path d="M28 60 Q50 82 72 60" stroke="var(--decor-cut)" strokeWidth="7" strokeLinecap="round" fill="none" />
         </svg>
       );
     case "dice":
@@ -56,7 +58,7 @@ function DecorShape({ kind }: { kind: string }) {
         <svg viewBox="0 0 100 100" className="h-full w-full">
           <rect x="6" y="6" width="88" height="88" rx="16" fill={fill} />
           {[[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]].map(([cx, cy]) => (
-            <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="8" fill="#180C62" />
+            <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="8" fill="var(--decor-cut)" />
           ))}
         </svg>
       );
@@ -104,7 +106,7 @@ function DecorShape({ kind }: { kind: string }) {
           className="flex h-full w-full items-center justify-center bg-current font-display font-black"
           style={{ borderRadius: kind === "?" ? "9999px" : "18%" }}
         >
-          <span className="text-[#180C62]" style={{ fontSize: "min(5vw, 5vh)", lineHeight: 1 }}>
+          <span className="text-[var(--decor-cut)]" style={{ fontSize: "min(5vw, 5vh)", lineHeight: 1 }}>
             {kind}
           </span>
         </div>
@@ -113,9 +115,14 @@ function DecorShape({ kind }: { kind: string }) {
 }
 
 /** The faded icons only. Put it behind content inside a `relative overflow-hidden` box. */
-export function CoverDecor() {
+export function CoverDecor({ tone = "dark" }: { tone?: "dark" | "light" }) {
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden text-white/[0.06]" aria-hidden="true">
+    <div
+      className={`pointer-events-none absolute inset-0 overflow-hidden ${tone === "dark" ? "text-white/[0.05]" : "text-rccg-purple-700/[0.045]"}`}
+      // The cut-outs (eyes, dots, letters) take the page colour, so they melt into it instead of standing out.
+      style={{ ["--decor-cut" as string]: tone === "dark" ? "#180C62" : "#F6F5FA" }}
+      aria-hidden="true"
+    >
       {DECOR.map((d, i) => (
         <div
           key={i}
@@ -246,15 +253,17 @@ function headline(lineup: Lineup, final: boolean): string {
   return final ? `${lineup.winners[0]} wins overall!` : `${lineup.winners[0]} leads`;
 }
 
-function LineupTable({ lineup, large, final, showTitle }: { lineup: Lineup; large?: boolean; final: boolean; showTitle: boolean }) {
+function LineupTable({ lineup, large, final, showTitle, bare }: { lineup: Lineup; large?: boolean; final: boolean; showTitle: boolean; bare?: boolean }) {
   const byGame = lineup.games.length > 1 && lineup.games.length <= 6;
   const cell = large ? "px-4 py-3" : "px-3 py-2";
   return (
     <section className="space-y-3 text-center">
       {showTitle && <p className="text-xs font-semibold uppercase tracking-wide text-muted">{lineup.label}</p>}
-      <p className={`font-display font-bold text-rccg-purple-800 ${large ? "text-5xl sm:text-6xl" : "text-2xl sm:text-3xl"}`}>
-        {headline(lineup, final)}
-      </p>
+      {!bare && (
+        <p className={`font-display font-bold text-rccg-purple-800 ${large ? "text-5xl sm:text-6xl" : "text-2xl sm:text-3xl"}`}>
+          {headline(lineup, final)}
+        </p>
+      )}
       <div className="mx-auto max-w-4xl overflow-x-auto rounded-xl border border-line bg-white text-left">
         <table className={`w-full ${large ? "text-2xl" : "text-sm"}`}>
           <thead>
@@ -299,7 +308,8 @@ function LineupTable({ lineup, large, final, showTitle }: { lineup: Lineup; larg
  * table (a column per game, then the total) with the overall winner on top,
  * then who won each game on its own.
  */
-export function OverallBoard({ summary, large, final }: { summary: EventSummary; large?: boolean; final?: boolean }) {
+/** `bare` leaves out the "Final result" label and the winner's headline, for use under a result card that already says it. */
+export function OverallBoard({ summary, large, final, bare }: { summary: EventSummary; large?: boolean; final?: boolean; bare?: boolean }) {
   const { lineups, results } = summary;
   if (results.length === 0) {
     return <p className={`text-center text-muted ${large ? "text-3xl" : "text-sm"}`}>No games have been played yet.</p>;
@@ -311,11 +321,13 @@ export function OverallBoard({ summary, large, final }: { summary: EventSummary;
 
   return (
     <div className="space-y-6">
-      <p className="text-center text-xs font-semibold uppercase tracking-wide text-muted">
-        {isFinal ? "Final result" : "Standings so far"}
-      </p>
+      {!bare && (
+        <p className="text-center text-xs font-semibold uppercase tracking-wide text-muted">
+          {isFinal ? "Final result" : "Standings so far"}
+        </p>
+      )}
       {tables.map((l) => (
-        <LineupTable key={l.key} lineup={l} large={large} final={isFinal} showTitle={lineups.length > 1} />
+        <LineupTable key={l.key} lineup={l} large={large} final={isFinal} showTitle={lineups.length > 1} bare={bare} />
       ))}
 
       {(results.length > 1 || tables.length === 0) && (
@@ -354,11 +366,12 @@ export function OverallBoard({ summary, large, final }: { summary: EventSummary;
 export function SessionBigScreen({ session, timer }: { session: GameSession; timer: RoundTimer }): ReactNode {
   const round = session.currentRound >= 0 ? session.rounds[session.currentRound] : undefined;
   const onBoard = session.game === "board" && session.currentRound < 0;
+  const onGrid = session.game === "spouses";
 
   if (session.status === "finished") {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <FinalResult session={session} large />
+        <GameResult session={session} large />
       </div>
     );
   }
@@ -375,12 +388,16 @@ export function SessionBigScreen({ session, timer }: { session: GameSession; tim
   return (
     <div className="flex flex-1 flex-col justify-between gap-8">
       <div className="flex flex-1 items-center justify-center">
-        {onBoard ? (
+        {onGrid ? (
+          <div className="w-full">
+            <CoupleGrid session={session} large />
+          </div>
+        ) : onBoard ? (
           <div className="w-full">
             <QuizBoard session={session} large />
           </div>
         ) : (
-          round && <RoundView session={session} round={round} large showAnswer={session.revealed} timer={timer} />
+          round && <RoundView session={session} round={round} large showAnswer={session.revealed} timer={timer} hold={session.game === "relay" && !session.called} />
         )}
       </div>
       <Scoreboard session={session} large pickerId={turnSide(session)?.id} pickerLabel={onBoard ? "Picks next" : "Their turn"} />

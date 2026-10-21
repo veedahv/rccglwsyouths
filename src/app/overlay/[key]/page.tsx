@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { subscribeOverlay } from "@/lib/games";
 import { useRoundTimer } from "@/lib/useRoundTimer";
-import { FinalResult, GameTag, QuizBoard, RoundView, ScoreStrip, TimerBadge } from "@/components/GameBoard";
-import { EventTag, OverallBoard } from "@/components/EventScreens";
+import { GameTag, RoundView, ScoreStrip, TimerBadge } from "@/components/GameBoard";
+import { EventTag } from "@/components/EventScreens";
+import { EventResult, GameResult } from "@/components/ResultCard";
+import { BoardOverlay, CoupleOverlay } from "@/components/OverlayViews";
 import { hasStarted, isEventOverlay } from "@/types/games";
 import type { OverlayDoc } from "@/types/games";
 
@@ -24,6 +26,7 @@ import type { OverlayDoc } from "@/types/games";
 //   &align=center (default) | left | right         tuck it into a corner
 //   &size=large                                    a bigger card (default is compact)
 //   &scale=1                                       scales everything (0.5 to 2)
+//   &confetti=off                                  no confetti on a winning result
 
 type Show = "all" | "round" | "timer" | "scores";
 type Position = "bottom" | "top" | "center";
@@ -35,9 +38,10 @@ interface Options {
   align: Align;
   large: boolean;
   scale: number;
+  confetti: boolean;
 }
 
-const DEFAULTS: Options = { show: "all", position: "bottom", align: "center", large: false, scale: 1 };
+const DEFAULTS: Options = { show: "all", position: "bottom", align: "center", large: false, scale: 1, confetti: true };
 
 function readOptions(search: string): Options {
   const q = new URLSearchParams(search);
@@ -51,6 +55,7 @@ function readOptions(search: string): Options {
     align: align === "left" || align === "right" ? align : "center",
     large: q.get("size") === "large",
     scale: Number.isFinite(scale) && scale >= 0.5 && scale <= 2 && scale !== 0 ? scale : 1,
+    confetti: q.get("confetti") !== "off",
   };
 }
 
@@ -118,8 +123,10 @@ export default function OverlayPage() {
         {event.view === "cover" ? (
           <EventTag title={event.title} subtitle={event.subtitle} large={large} />
         ) : (
-          <div className={`w-full rounded-2xl bg-white/95 px-5 py-4 shadow-xl ${large ? "max-w-6xl" : "max-w-4xl"}`}>
-            <OverallBoard summary={event.summary} large={large} final={event.view === "final"} />
+          // One compact card per group of sides: the winner, then everyone ranked. The full
+          // game-by-game table is left for the big screen, since it won't fit portrait video.
+          <div className={`w-full ${large ? "max-w-3xl" : "max-w-md"}`}>
+            <EventResult summary={event.summary} large={large} final={event.view === "final"} confetti={opts.confetti} />
           </div>
         )}
       </div>
@@ -130,6 +137,7 @@ export default function OverlayPage() {
   const finished = session.status === "finished";
   const round = session.currentRound >= 0 ? session.rounds[session.currentRound] : undefined;
   const onBoard = session.game === "board" && session.currentRound < 0;
+  const tiles = onBoard || session.game === "spouses";
 
   // Before the game starts: just a tag with the game's name, in the places that draw the round.
   if (!hasStarted(session) && !finished) {
@@ -144,19 +152,31 @@ export default function OverlayPage() {
     <div className={`pointer-events-none fixed inset-x-0 flex flex-col gap-3 p-6 ${alignClass} ${place}`}>
       {opts.show === "timer" && timer.enabled && !finished && round && <TimerBadge timer={timer} large inline />}
 
-      {showRound && (finished || onBoard || round) && (
-        <div className={`w-full rounded-2xl bg-white/95 px-5 py-4 shadow-xl ${large ? "max-w-6xl" : onBoard ? "max-w-4xl" : "max-w-3xl"}`}>
-          {finished ? (
-            <FinalResult session={session} large={large} />
+      {/* A finished game is one result card with the scores in it, so the score strip is left off. */}
+      {showRound && finished && (
+        <div className={`w-full ${large ? "max-w-3xl" : "max-w-md"}`}>
+          <GameResult session={session} large={large} confetti={opts.confetti} />
+        </div>
+      )}
+
+      {showRound && !finished && (onBoard || round || session.game === "spouses") && (
+        <div
+          className={`w-full rounded-2xl bg-white/95 px-5 py-4 shadow-xl ${
+            // Tile games get a narrower card: their overlay views are made for portrait video.
+            tiles && !finished ? (large ? "max-w-3xl" : "max-w-md") : large ? "max-w-6xl" : onBoard ? "max-w-4xl" : "max-w-3xl"
+          }`}
+        >
+          {session.game === "spouses" ? (
+            <CoupleOverlay session={session} large={large} />
           ) : onBoard ? (
-            <QuizBoard session={session} large={large} />
+            <BoardOverlay session={session} large={large} />
           ) : (
             round && <RoundView session={session} round={round} large={large} showAnswer={session.revealed} timer={timer} />
           )}
         </div>
       )}
 
-      {showScores && <ScoreStrip session={session} large={large} />}
+      {showScores && !finished && <ScoreStrip session={session} large={large} />}
     </div>
   );
 }

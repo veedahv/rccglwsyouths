@@ -2,7 +2,7 @@
 // they are grouped, and awards points round by round (version 1 is
 // admin-scored; youths answering on their own phones is a later feature).
 
-export type GameKind = "scramble" | "bibleOrCap" | "emoji" | "fillBlank" | "whoAmI" | "board" | "bookGuess";
+export type GameKind = "scramble" | "bibleOrCap" | "emoji" | "fillBlank" | "whoAmI" | "board" | "bookGuess" | "spouses" | "spouseQuiz" | "relay";
 
 export const GAME_LABEL: Record<GameKind, string> = {
   scramble: "Scrambled words",
@@ -12,6 +12,9 @@ export const GAME_LABEL: Record<GameKind, string> = {
   whoAmI: "Who Am I?",
   board: "Quiz board",
   bookGuess: "Guess the Book",
+  spouses: "Bible Couples",
+  spouseQuiz: "Name the Spouse",
+  relay: "Bible Relay",
 };
 
 /** Has the game been started? Older sessions have no flag and count as started. */
@@ -35,12 +38,13 @@ export type PlayMode = "turns" | "free";
 
 /** Who Am I? and the quiz board are always turn by turn. */
 export function gameAlwaysTurns(game: GameKind): boolean {
-  return game === "whoAmI" || game === "board";
+  return game === "whoAmI" || game === "board" || game === "spouses";
 }
 
 /** The quick-answer games, where the admin chooses between turn by turn and first to answer. */
 export function gameCanChoosePlayMode(game: GameKind): boolean {
-  return !gameAlwaysTurns(game);
+  // The relay is a race between teams, so it is never turn by turn.
+  return !gameAlwaysTurns(game) && game !== "relay";
 }
 
 /** In a fill-in-the-missing-word verse, each missing word is marked with this. */
@@ -64,6 +68,15 @@ export const BLANK = "___";
 //   scene the clue shows (e.g. "Noah and the ark (Genesis 6-9)"), shown on reveal. A book can
 //   have several clues: a game picks one of them at random and never uses a book twice.
 //   Every clue should show one scene that belongs to one book only.
+// - spouses ("Bible Couples", a memory-card game): `statement` is one person, `answer` is their
+//   spouse, `category` is the Testament and `reference` is the verse. Each couple becomes two
+//   face-down cards. Keep to couples with one clear answer (not Jacob's wives or Solomon's).
+// - spouseQuiz ("Name the Spouse", the plain quiz version of Bible Couples): `statement` is a
+//   person, `answer` is their spouse, and several correct answers can be listed, separated by
+//   commas (Jacob: "Rachel, Leah"). `category` is the Testament, `reference` is optional.
+// - relay ("Bible Relay", an in-person race): `statement` is a Bible reference that is called
+//   out (e.g. "John 3:16"), `category` is the difficulty (Easy, Medium or Hard) and `value` is
+//   the points for the team that finds it first.
 // - board ("Quiz board", a Jeopardy-style grid): `category` is a column,
 //   `value` is the points and row, `statement` is the clue, `answer` is the
 //   response and `reference` is optional.
@@ -150,6 +163,11 @@ export interface GameSession {
   cluesShown?: number; // whoAmI: how many clues of the current round are on screen
   boardCategories?: string[]; // board: column order
   boardValues?: number[]; // board: row order (smallest first)
+  // Bible Couples: the face-down cards. Each is one half of a couple (`r` is the round holding
+  // the couple, `s` is 0 for the person and 1 for their spouse), in shuffled order.
+  cards?: { r: number; s: 0 | 1 }[];
+  flipped?: number[]; // Bible Couples: indexes of the cards face up right now (at most two)
+  called?: boolean; // Bible Relay: has the host called this round's verse yet? Hidden from the big screen and overlay until then.
   playMode?: PlayMode; // see PlayMode. Missing means "free".
   // Turn by turn: index of the side answering right now. On a quiz board it is also the side
   // that picks the next tile. (Older boards without a playMode use it for the picker only.)

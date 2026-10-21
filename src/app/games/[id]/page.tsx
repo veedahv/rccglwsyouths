@@ -12,6 +12,7 @@ import RequireAuth from "@/components/RequireAuth";
 import { FinalResult, GameTag, QuizBoard, RoundView, Scoreboard } from "@/components/GameBoard";
 import ObsCard from "@/components/ObsCard";
 import HowToPlay from "@/components/HowToPlay";
+import CoupleGrid from "@/components/CoupleGrid";
 import { Page, PageHeader, Card, Badge, Loading, Notice, EmptyState } from "@/components/ui";
 import { GAME_LABEL, MODE_LABEL, gameHasHints, hasStarted } from "@/types/games";
 import type { GameEvent, GameSession } from "@/types/games";
@@ -174,6 +175,8 @@ function RunInner() {
   const started = hasStarted(session);
   const awarded = round?.awards ?? {};
   const allPlayed = isBoard && session.rounds.every((r) => r.played);
+  const isGrid = session.game === "spouses";
+  const isRelay = session.game === "relay"; // Bible Couples: a grid of cards, not rounds
   const turns = isTurnBased(session);
   const turnNow = turnSide(session);
   const sideCount = Math.max(session.sides.length, 1);
@@ -187,7 +190,9 @@ function RunInner() {
       ? round.value ?? 0
       : session.game === "whoAmI"
         ? whoAmIPoints(session, round)
-        : null;
+        : session.game === "relay"
+          ? round.value ?? 1
+          : null;
 
   // Turn by turn: a question is worth full points to the side it started with, and half once passed on.
   const basePoints = autoPoints ?? pointValue;
@@ -219,8 +224,48 @@ function RunInner() {
     run({ revealed: true, ...pauseIfRunning() });
   }
 
+  /* ----- Bible Couples ----- */
+
+  const flipped = session.flipped ?? [];
+  const allMatched = isGrid && session.rounds.every((r) => r.played);
+
+  /** Turn a card over. When the second one is the first one's other half, the side whose turn it is wins a point. */
+  function flipCard(i: number) {
+    if (!session || !session.cards || !turnNow) return;
+    const card = session.cards[i];
+    if (!card || flipped.length >= 2 || flipped.includes(i) || session.rounds[card.r]?.played) return;
+    const next = [...flipped, i];
+    if (next.length === 2 && session.cards[next[0]].r === card.r) {
+      const rounds = session.rounds.map((r, k) => (k === card.r ? { ...r, played: true, awards: { [turnNow.id]: 1 } } : r));
+      run({ flipped: next, rounds });
+    } else {
+      run({ flipped: next });
+    }
+  }
+
+  /** Takes back the last flip (a mis-tap), including the point if it made a match. */
+  function undoFlip() {
+    if (!session || !session.cards || flipped.length === 0) return;
+    const last = session.cards[flipped[flipped.length - 1]];
+    const wasMatch = flipped.length === 2 && session.cards[flipped[0]].r === last.r;
+    const rounds = wasMatch ? session.rounds.map((r, k) => (k === last.r ? { ...r, played: false, awards: {} } : r)) : session.rounds;
+    run({ flipped: flipped.slice(0, -1), ...(wasMatch ? { rounds } : {}) });
+  }
+
+  /** Turns any unmatched cards back over and hands the turn to the next side. */
+  function nextGridTurn() {
+    const next = ((session?.turnIndex ?? 0) + 1) % sideCount;
+    run({ flipped: [], turnIndex: next, turnStart: next });
+  }
+
+  /** Bible Relay: read the verse out. It appears on the big screen and the overlay, and the clock starts. */
+  function callVerse() {
+    run({ called: true, ...timerFields(timer.enabled ? "running" : "idle", timer.total) });
+  }
+
   function award(sideId: string) {
     if (!session || !round || finished) return;
+    if (isRelay && !session.called) return; // nobody can have found a verse that hasn't been called
     const current = round.awards[sideId] ?? 0;
     let next: number;
     if (autoPoints !== null) {
@@ -260,8 +305,9 @@ function RunInner() {
       revealed: false,
       // Who Am I? starts every round with its first clue showing.
       ...(session!.game === "whoAmI" ? { cluesShown: 1 } : {}),
-      // Moving to another round starts its countdown straight away.
-      ...timerFields(timer.enabled ? "running" : "idle", timer.total),
+      // Moving to another round starts its countdown straight away, except in the Bible Relay,
+      // where the verse is hidden and the clock waits until the host calls it.
+      ...(session!.game === "relay" ? { called: false, ...timerFields("idle", timer.total) } : timerFields(timer.enabled ? "running" : "idle", timer.total)),
     });
   }
 
@@ -315,7 +361,11 @@ function RunInner() {
    * as when moving on to the next round.
    */
   function startGame() {
-    run({ started: true, ...timerFields(!isBoard && timer.enabled ? "running" : "idle", timer.total) });
+    run({
+      started: true,
+      ...(isRelay ? { called: false } : {}),
+      ...timerFields(!isBoard && !isRelay && timer.enabled ? "running" : "idle", timer.total),
+    });
   }
 
   const onEventScreen = !!event && event.view === "game" && event.activeSessionId === session.id;
@@ -402,6 +452,41 @@ function RunInner() {
             )}
           </div>
         </Card>
+      ) : isGrid ? (
+        <div className="space-y-5">
+          <Card
+            title={`${turnNow?.name ?? "No one"}\u2019s turn`}
+            description={
+              canControl
+                ? flipped.length < 2
+                  ? "Tap the two cards they call out. A match wins them a point."
+                  : "Both cards are up. Show everyone, then move on."
+                : undefined
+            }
+          >
+            <CoupleGrid session={session} onFlip={canControl && !busy ? flipCard : undefined} />
+            {canControl && (
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {flipped.length === 2 && (
+                  <button disabled={busy} onClick={nextGridTurn} className={allMatched ? "btn-secondary" : "btn-primary"}>
+                    {session.cards && session.cards[flipped[0]].r === session.cards[flipped[1]].r ? "Match! Next turn" : "No match. Turn them back, next turn"}
+                  </button>
+                )}
+                {flipped.length > 0 && (
+                  <button disabled={busy} onClick={undoFlip} className="btn-ghost btn-sm">
+                    Undo last flip
+                  </button>
+                )}
+                <button disabled={busy} onClick={finish} className={allMatched ? "btn-primary ml-auto" : "btn-ghost-danger ml-auto"}>
+                  {allMatched ? "Finish game" : "End the game now"}
+                </button>
+              </div>
+            )}
+          </Card>
+          <Card title="Scoreboard">
+            <Scoreboard session={session} pickerId={pickerId} pickerLabel="Their turn" />
+          </Card>
+        </div>
       ) : onBoard ? (
         <div className="space-y-5">
           <Card
@@ -437,7 +522,12 @@ function RunInner() {
 
             {canControl && (
               <div className="mt-5 space-y-3 border-t border-line pt-4">
-                {!session.revealed && (
+                {isRelay && !session.called && (
+                  <p className="text-center text-sm text-muted">
+                    The verse is hidden from the big screen and the overlay until you call it.
+                  </p>
+                )}
+                {!session.revealed && !isRelay && (
                   <p className="text-center text-sm text-muted">
                     Answer (only you see this until you reveal it):{" "}
                     <span className="font-semibold text-ink">
@@ -474,8 +564,17 @@ function RunInner() {
                       Reveal next clue ({Math.min(session.cluesShown ?? 1, round.clues?.length ?? 1)} of {round.clues?.length ?? 0})
                     </button>
                   )}
-                  <button disabled={busy} onClick={() => run({ revealed: !session.revealed, ...(session.revealed ? {} : pauseIfRunning()) })} className="btn-secondary">
-                    {session.revealed ? "Hide answer" : "Reveal answer"}
+                  {isRelay && !session.called && (
+                    <button disabled={busy} onClick={callVerse} className="btn-primary">
+                      Call the verse{timer.enabled ? " and start the clock" : ""}
+                    </button>
+                  )}
+                  <button
+                    disabled={busy || (isRelay && !session.called)}
+                    onClick={() => run({ revealed: !session.revealed, ...(session.revealed ? {} : pauseIfRunning()) })}
+                    className="btn-secondary"
+                  >
+                    {isRelay ? (session.revealed ? "Undo" : "Nobody found it") : session.revealed ? "Hide answer" : "Reveal answer"}
                   </button>
                   {isBoard ? (
                     <button disabled={busy} onClick={backToBoard} className="btn-primary">
@@ -552,7 +651,15 @@ function RunInner() {
 
           <Card
             title="Scoreboard"
-            description={canControl ? (turns ? "Points are given with the buttons above." : "Tap a side to give it points. Awarding points also reveals the answer.") : undefined}
+            description={
+              canControl
+                ? turns
+                  ? "Points are given with the buttons above."
+                  : isRelay
+                    ? "Tap the team that found the verse first. It stops the clock and gives them the points."
+                    : "Tap a side to give it points. Awarding points also reveals the answer."
+                : undefined
+            }
             action={
               canControl && (
                 <div className="flex flex-wrap items-center gap-2 text-sm">

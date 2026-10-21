@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
 import { subscribeSession, turnSide } from "@/lib/games";
 import { useRoundTimer } from "@/lib/useRoundTimer";
 import RequireAuth from "@/components/RequireAuth";
 import HowToPlay from "@/components/HowToPlay";
-import { FinalResult, GameTag, QuizBoard, RoundView, Scoreboard } from "@/components/GameBoard";
+import CoupleGrid from "@/components/CoupleGrid";
+import { GameTag, QuizBoard, RoundView, Scoreboard } from "@/components/GameBoard";
+import { GameResult } from "@/components/ResultCard";
+import PresentFrame from "@/components/PresentFrame";
 import { Loading, Notice } from "@/components/ui";
 import { GAME_LABEL, hasStarted } from "@/types/games";
 import type { GameSession } from "@/types/games";
@@ -40,50 +42,55 @@ function PresentInner() {
   const onBoard = session?.game === "board" && session.currentRound < 0;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-mist">
-      <div className="mx-auto flex min-h-full max-w-6xl flex-col px-6 py-6 sm:px-10">
-        <header className="mb-6 flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="truncate font-display text-xl font-bold text-rccg-purple-800 sm:text-3xl">
-              {session?.title ?? "Game"}
-            </p>
-            {session && <p className="text-sm text-muted">{GAME_LABEL[session.game]}</p>}
+    <PresentFrame
+      title={session?.title ?? "Game"}
+      subtitle={session ? GAME_LABEL[session.game] : undefined}
+      exitHref={session ? `/games/${session.id}` : "/games"}
+    >
+      {loading ? (
+        <Loading />
+      ) : error || !session ? (
+        <Notice tone="error">{error ?? "This session was not found."}</Notice>
+      ) : session.status === "finished" ? (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="w-full max-w-4xl">
+            <GameResult session={session} large />
           </div>
-          <Link href={session ? `/games/${session.id}` : "/games"} className="btn-ghost shrink-0 !text-muted">
-            Exit
-          </Link>
-        </header>
-
-        {loading ? (
-          <Loading />
-        ) : error || !session ? (
-          <Notice tone="error">{error ?? "This session was not found."}</Notice>
-        ) : session.status === "finished" ? (
+        </div>
+      ) : !hasStarted(session) ? (
+        // Not started: only the game's name. The first question follows once the admin starts the game.
+        <div className="flex flex-1 flex-col items-center justify-center gap-8">
+          <GameTag game={session.game} large />
+          <HowToPlay session={session} large />
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col justify-between gap-8">
           <div className="flex flex-1 items-center justify-center">
-            <FinalResult session={session} large />
+            {session.game === "spouses" ? (
+              <div className="w-full">
+                <CoupleGrid session={session} large />
+              </div>
+            ) : onBoard ? (
+              <div className="w-full">
+                <QuizBoard session={session} large />
+              </div>
+            ) : (
+              round && (
+                <RoundView
+                  session={session}
+                  round={round}
+                  large
+                  showAnswer={session.revealed}
+                  timer={timer}
+                  hold={session.game === "relay" && !session.called}
+                />
+              )
+            )}
           </div>
-        ) : !hasStarted(session) ? (
-          // Not started: only the game's name. The first question follows once the admin starts the game.
-          <div className="flex flex-1 flex-col items-center justify-center gap-8">
-            <GameTag game={session.game} large />
-            <HowToPlay session={session} large />
-          </div>
-        ) : (
-          <div className="flex flex-1 flex-col justify-between gap-8">
-            <div className="flex flex-1 items-center justify-center">
-              {onBoard ? (
-                <div className="w-full">
-                  <QuizBoard session={session} large />
-                </div>
-              ) : (
-                round && <RoundView session={session} round={round} large showAnswer={session.revealed} timer={timer} />
-              )}
-            </div>
-            <Scoreboard session={session} large pickerId={turnSide(session)?.id} pickerLabel={onBoard ? "Picks next" : "Their turn"} />
-          </div>
-        )}
-      </div>
-    </div>
+          <Scoreboard session={session} large pickerId={turnSide(session)?.id} pickerLabel={onBoard ? "Picks next" : "Their turn"} />
+        </div>
+      )}
+    </PresentFrame>
   );
 }
 

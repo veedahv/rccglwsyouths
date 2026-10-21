@@ -17,6 +17,7 @@ import RequireAuth from "@/components/RequireAuth";
 import GamesTabs from "@/components/GamesTabs";
 import { Page, PageHeader, Card, Field, Badge, Loading, EmptyState, Notice } from "@/components/ui";
 import { BIBLE_BOOKS } from "@/lib/bibleBooks";
+import BookPicker from "@/components/BookPicker";
 import { GAME_LABEL } from "@/types/games";
 import type { GameKind, GameQuestion } from "@/types/games";
 
@@ -83,7 +84,7 @@ function QuestionsInner() {
     setGame(next);
     setCategoryFilter("");
     setEditingId(null);
-    setForm(EMPTY);
+    setForm({ ...EMPTY, value: next === "relay" ? "1" : EMPTY.value }); // a relay verse starts at 1 point, a board clue at 100
     setShowBulk(false);
   }
 
@@ -106,7 +107,7 @@ function QuestionsInner() {
 
   function cancelEdit() {
     setEditingId(null);
-    setForm(EMPTY);
+    setForm({ ...EMPTY, value: game === "relay" ? "1" : EMPTY.value });
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -116,6 +117,14 @@ function QuestionsInner() {
     const category = form.category.trim();
     if (!category) return setError("Give it a category.");
     if (game === "scramble" && !form.answer.trim()) return setError("Enter the word to unscramble.");
+    if (game === "spouses" || game === "spouseQuiz") {
+      if (!form.statement.trim() || !form.answer.trim()) return setError(game === "spouses" ? "Enter both people in the couple." : "Enter the person and their spouse.");
+    }
+    if (game === "relay") {
+      if (!/\d+:\d+/.test(form.statement)) return setError("Enter the reference with a chapter and verse, like John 3:16.");
+      const v = Number(form.value);
+      if (!Number.isInteger(v) || v <= 0) return setError("Points must be a whole number above zero, like 1.");
+    }
     if (game === "emoji" || game === "bookGuess") {
       if (!form.emojis.trim()) return setError("Enter the emojis.");
       if (!form.answer.trim()) return setError(game === "bookGuess" ? "Enter the book." : "Enter the answer.");
@@ -151,6 +160,12 @@ function QuestionsInner() {
     } else if (game === "emoji") {
       data = { game, category, emojis: form.emojis.trim(), answer: form.answer.trim(), hint: hint || undefined, reference: note || undefined };
       clearing = { hint, reference: note };
+    } else if (game === "relay") {
+      data = { game, category, statement: form.statement.trim(), value: points };
+      clearing = {};
+    } else if (game === "spouses" || game === "spouseQuiz") {
+      data = { game, category, statement: form.statement.trim(), answer: form.answer.trim(), reference: note || undefined };
+      clearing = { reference: note };
     } else if (game === "bookGuess") {
       data = { game, category, emojis: form.emojis.trim(), answer: form.answer.trim(), reference: note || undefined };
       clearing = { reference: note };
@@ -412,6 +427,52 @@ function QuestionsInner() {
               </>
             )}
 
+            {game === "relay" && (
+              <>
+                <Field label="Reference" hint="Book, chapter and verse. Pick the book below, then add the chapter and verse.">
+                  <input value={form.statement} onChange={(e) => setForm({ ...form, statement: e.target.value })} placeholder="John 3:16" className="input" />
+                </Field>
+                <details className="rounded-lg border border-line bg-white p-3">
+                  <summary className="cursor-pointer text-sm font-medium">Pick the book</summary>
+                  <div className="mt-3">
+                    <BookPicker
+                      onPick={(name) => {
+                        // Keep a chapter and verse already typed, and swap the book.
+                        const rest = form.statement.match(/(\d+:\d+(?:[-\u2013]\d+)?)\s*$/)?.[1] ?? "";
+                        setForm({ ...form, statement: `${name} ${rest}`.trim() + (rest ? "" : " ") });
+                      }}
+                    />
+                  </div>
+                </details>
+                <Field label="Points" hint="Easy 1, Medium 2, Hard 3 works well. Use Easy, Medium or Hard as the category.">
+                  <input type="number" min={1} value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} className="input w-28" />
+                </Field>
+              </>
+            )}
+
+            {(game === "spouses" || game === "spouseQuiz") && (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label={game === "spouses" ? "One of the couple" : "The person"}
+                    hint={
+                      game === "spouses"
+                        ? "One clear couple, not Jacob's wives or Solomon. A name can only be on the table once in a game."
+                        : "The name players are asked about."
+                    }
+                  >
+                    <input value={form.statement} onChange={(e) => setForm({ ...form, statement: e.target.value })} placeholder="Boaz" className="input" />
+                  </Field>
+                  <Field label="Their spouse" hint={game === "spouseQuiz" ? "Several correct answers? Separate them with commas. Any one counts." : undefined}>
+                    <input value={form.answer} onChange={(e) => setForm({ ...form, answer: e.target.value })} placeholder="Ruth" className="input" />
+                  </Field>
+                </div>
+                <Field label="Reference (optional)" hint="Where they are married in Scripture. Use the Testament as the category.">
+                  <input value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} placeholder="Ruth 4:13" className="input" />
+                </Field>
+              </>
+            )}
+
             {game === "bookGuess" && (
               <>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -610,6 +671,22 @@ function QuestionsInner() {
                       Format: <code>emojis | answer | hint | reference</code> (hint and reference are optional).
                     </>
                   )}
+                  {game === "spouses" && (
+                    <>
+                      Format: <code>person | spouse | reference</code> (reference optional). Use the Testament as the category.
+                    </>
+                  )}
+                  {game === "spouseQuiz" && (
+                    <>
+                      Format: <code>person | spouse | reference</code>. For several correct answers, separate them with commas:{" "}
+                      <code>Jacob | Rachel, Leah | Genesis 29</code>.
+                    </>
+                  )}
+                  {game === "relay" && (
+                    <>
+                      Format: <code>reference | points</code>, e.g. <code>John 3:16 | 1</code>. Use Easy, Medium or Hard as the category.
+                    </>
+                  )}
                   {game === "bookGuess" && (
                     <>
                       Format: <code>emojis | book | scene</code> (scene optional). Use Easy, Medium or Hard as the category. Give a book
@@ -642,6 +719,12 @@ function QuestionsInner() {
                   placeholder={
                     game === "scramble"
                       ? "Moses | Led Israel out of Egypt\nEsther | Became queen and saved her people"
+                      : game === "relay"
+                        ? "John 3:16 | 1\nNahum 1:7 | 3"
+                      : game === "spouseQuiz"
+                        ? "Jacob | Rachel, Leah | Genesis 29\nRuth | Boaz | Ruth 4:13"
+                      : game === "spouses"
+                        ? "Boaz | Ruth | Ruth 4:13\nAquila | Priscilla | Acts 18:2"
                       : game === "bookGuess"
                         ? "🐋🧍‍♂️ | Jonah | Jonah swallowed by a great fish (Jonah 1-2)\n🌧️🚢🐘🦁 | Genesis | Noah and the ark (Genesis 6-9)"
                       : game === "emoji"
@@ -707,6 +790,29 @@ function QuestionsInner() {
                     {(q.hint || q.reference) && (
                       <p className="text-sm text-muted">{[q.hint, q.reference].filter(Boolean).join(" · ")}</p>
                     )}
+                  </>
+                )}
+                {q.game === "relay" && (
+                  <p className="font-semibold text-rccg-purple-800">
+                    <span className="num mr-2 inline-block rounded-md bg-rccg-purple-700 px-1.5 py-0.5 text-xs font-bold text-white">{q.value}</span>
+                    {q.statement}
+                  </p>
+                )}
+                {q.game === "spouseQuiz" && (
+                  <>
+                    <p className="font-semibold text-rccg-purple-800">{q.statement}</p>
+                    <p className="text-sm text-muted">
+                      {(q.answer ?? "").split(",").map((a) => a.trim()).join(" or ")}
+                      {q.reference ? ` · ${q.reference}` : ""}
+                    </p>
+                  </>
+                )}
+                {q.game === "spouses" && (
+                  <>
+                    <p className="font-semibold text-rccg-purple-800">
+                      {q.statement} <span className="text-muted">&amp;</span> {q.answer}
+                    </p>
+                    {q.reference && <p className="text-sm text-muted">{q.reference}</p>}
                   </>
                 )}
                 {q.game === "bookGuess" && (

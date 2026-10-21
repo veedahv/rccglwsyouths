@@ -203,6 +203,28 @@ When a game is set up, **How are questions answered?** decides how points are wo
 - Half points can be fractions (0.5, 1.5). Sessions made before this keep playing as first to answer.
 - Data: `GameSession.playMode` (`"turns"` or `"free"`), `turnIndex`, `turnStart` and `passes`.
 
+### Overlay views for tile games (portrait video)
+The OBS overlay is mostly recorded in portrait, where a grid of tiles is too small to read, so tile games have their own overlay views (`components/OverlayViews.tsx`). The big screen (`/present`) keeps the full tiles.
+- **Bible Couples**: shows whose turn it is and "3 of 8 couples found"; the card number picked ("Card 7") with its name as it is turned over; then a green "It's a match! Boaz & Ruth, +1 for Team A" or a red shaking "No match"; and a list of the couples found so far. The banner stays until the host moves to the next turn, so it is on screen long enough to record.
+- **Quiz board** (between tiles): whose pick it is, how many tiles are left, and a short list of each category with its remaining point values (played ones struck through). When a tile is open, the usual clue card shows.
+- These cards are narrower than the others (`&size=large` makes them bigger, `&scale=` still applies).
+
+### Bible Relay (in person)
+A race between teams to find a called verse. The app is the caller.
+- **Setup**: pick the Bible Relay, the teams (or Boys vs Girls) and the number of verses. The verses are drawn evenly from Easy, Medium and Hard, then played easiest to hardest, so every game builds up the same way. Easy verses are worth 1 point, Medium 2, Hard 3.
+- **Running it**: the host sees the next reference but the big screen and overlay only say "Get ready…". **Call the verse** shows it to everyone and starts the clock. Tap the team that found it first: that stops the clock, gives them the points and shows who found it. **Nobody found it** moves on without points. The overlay is never sent the verse until it is called.
+- **Question bank**: "Bible Relay" tab. Add a reference with the book picker (the same one the teasers use) plus chapter and verse, a difficulty category and points. About 34 starter verses load with "Load starter questions".
+- The how-to-play wording follows the rules as written in the brief (a front player who sees the Bible and a back player who opens it). Check it matches how you play, and edit it in `lib/gameRules.ts` if not.
+
+### Name the Spouse (the quiz version of Bible Couples)
+A name is shown: "Who was Jacob married to?". Works first to answer or turn by turn. Unlike the memory game, messy cases are fine: list every correct answer separated by commas (Jacob: Rachel, Leah) and any one counts; the reveal shows them as "Rachel or Leah". It has its own question bank tab ("person | spouse | reference") and a starter set of 18, including David, Jacob and Elkanah.
+
+### Bible Couples (memory-card game)
+Face-down cards, each hiding a name from a Bible couple (Boaz, Ruth, Aquila, Priscilla…). Sides take turns calling out two cards; the host taps them. A matching couple stays face up and wins that side a point; otherwise both cards are shown, then turned back and the turn passes on. It is always turn by turn, so you pick who goes first. Misses always pass the turn, so every side gets the same number of goes.
+- Setup: choose the number of couples (2 to 10, so up to 20 cards). A name can only be on the table once, so a couple that repeats a name already in the game (two Josephs) is left out. There is no timer.
+- Question bank: "person | spouse | reference", with the Testament as the category. The starter set has 16 clear couples; couples with unclear answers (Jacob's wives, Solomon) are left out.
+- The host can **Undo last flip**. The overlay only receives the names of face-up cards, so a face-down card can't be read from the link.
+
 ### Guess the Book (picture clues)
 A new game in the normal game setup. Emojis show one scene from a book of the Bible; players name the book, and the reveal shows the book and the scene.
 - **Several clues per book**: the question bank can hold many clues for one book (Genesis: the ark, Eden, Jacob's ladder). A game picks one clue per book at random and never uses a book twice.
@@ -353,3 +375,7 @@ Suggested OBS setup:
 overlay stays blank (the game itself keeps working, and the run screen warns
 you). For a session made before overlays existed, use "Create overlay link" on
 its run screen.
+
+## Result screens and confetti
+
+Finished games and events now show one result card (winner, ranked bars, scores) on the present screen and the OBS overlay, with confetti when there is a winner. The overlay no longer repeats the score strip under a finished game. Add `&confetti=off` to an overlay URL to turn the confetti off. Confetti is hidden for visitors who prefer reduced motion.

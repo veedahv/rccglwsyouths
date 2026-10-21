@@ -91,6 +91,8 @@ interface RoundProps {
   /** Whether a scramble's hint is shown. Defaults to the session's setting. */
   showHint?: boolean;
   timer?: RoundTimer;
+  /** Bible Relay: keep the verse hidden. The big screen holds it back until the host calls it. */
+  hold?: boolean;
 }
 
 /** Who Am I?: the clues shown so far, with the rest locked until the admin reveals them. */
@@ -170,7 +172,7 @@ function TurnBanner({ session, large }: { session: GameSession; large?: boolean 
 }
 
 /** What is on screen for the current round. Used by both the run screen and the projector. */
-export function RoundView({ session, round, large, showAnswer, showHint, timer }: RoundProps) {
+export function RoundView({ session, round, large, showAnswer, showHint, timer, hold }: RoundProps) {
   const game = session.game;
   const hasHints = gameHasHints(game);
   const hintOn = showHint ?? session.showHints !== false;
@@ -179,8 +181,17 @@ export function RoundView({ session, round, large, showAnswer, showHint, timer }
   const answerTone = isCap ? "text-rccg-red-600" : "text-rccg-green-700";
   // Scripture shows its verse; Cap shows where the saying really comes from.
   const note = isCap ? round.explanation : round.reference;
+  // Bible Relay: who found the verse first, and whether the verse is still being kept back.
+  const found = game === "relay" ? session.sides.filter((s) => (round.awards[s.id] ?? 0) > 0).map((s) => s.name) : [];
+  const waiting = game === "relay" && (!!hold || !round.prompt);
   const answerText =
-    game === "scramble"
+    game === "relay"
+      ? found.length > 0
+        ? `Found first by ${found.join(" and ")}`
+        : "Nobody found it"
+      : game === "spouseQuiz"
+        ? round.answer.split(",").map((a) => a.trim()).filter(Boolean).join(" or ")
+        : game === "scramble"
       ? round.answer.toUpperCase()
       : game === "bibleOrCap"
         ? isCap
@@ -201,6 +212,19 @@ export function RoundView({ session, round, large, showAnswer, showHint, timer }
       </div>
 
       {isTurnBased(session) && <TurnBanner session={session} large={large} />}
+
+      {game === "relay" &&
+        (waiting ? (
+          <p className={`font-display font-bold text-rccg-purple-700 ${large ? "text-6xl" : "text-3xl"}`}>Get ready…</p>
+        ) : (
+          <p className={`font-display font-black text-rccg-purple-800 ${large ? "text-8xl" : "text-5xl"}`}>{round.prompt}</p>
+        ))}
+
+      {game === "spouseQuiz" && (
+        <p className={`mx-auto max-w-4xl font-display font-semibold text-rccg-purple-800 ${large ? "text-5xl sm:text-6xl" : "text-2xl sm:text-3xl"}`}>
+          Who was <span className="text-rccg-green-700">{round.prompt}</span> married to?
+        </p>
+      )}
 
       {game === "scramble" && <LetterTiles text={round.prompt} large={large} />}
 
@@ -239,7 +263,7 @@ export function RoundView({ session, round, large, showAnswer, showHint, timer }
 
       {showAnswer && (
         <div className={`mx-auto max-w-3xl rounded-xl border border-line bg-white px-5 py-4 ${large ? "py-6" : ""}`}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted">Answer</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">{game === "relay" ? "Result" : "Answer"}</p>
           <p
             className={[
               "font-display font-bold",

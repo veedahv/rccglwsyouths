@@ -56,6 +56,9 @@ const GAMES: { value: GameKind; description: string }[] = [
   { value: "bibleOrCap", description: "A quote is shown. Is it Scripture, or is it cap (a saying that is not in the Bible)?" },
   { value: "emoji", description: "A few emojis are shown. Guess the Bible story, character or miracle." },
   { value: "bookGuess", description: "Emojis show one scene from a book of the Bible. Which book is it? Easy, medium and hard." },
+  { value: "relay", description: "In person. Teams race to find a called verse in the Bible. The first team to find it wins the points." },
+  { value: "spouseQuiz", description: "A Bible person is named. Who was their husband or wife? Some had more than one." },
+  { value: "spouses", description: "A memory game. Flip two cards at a time to find Bible couples. Sides take turns." },
   { value: "fillBlank", description: "A verse is shown with a word missing. Who can fill it in?" },
   { value: "whoAmI", description: "Clues about a Bible person are revealed one at a time. The sooner you guess, the more points." },
   { value: "board", description: "A grid of categories and point levels, like a quiz show. Sides take turns picking a tile." },
@@ -225,7 +228,7 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit, def
 
   /* ----- how it is played ----- */
 
-  const playMode: PlayMode = gameAlwaysTurns(game) ? "turns" : chosenPlayMode;
+  const playMode: PlayMode = gameAlwaysTurns(game) ? "turns" : game === "relay" ? "free" : chosenPlayMode;
   // The sides as they will be, so "who goes first" can list them before the game is created.
   const sidePreview: string[] = reused
     ? reused.sides.map((s) => s.name)
@@ -249,6 +252,7 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit, def
     } else if (roundCount < 1) {
       return setError("Set at least one round.");
     }
+    if (game === "spouses" && (roundCount < 2 || roundCount > 10)) return setError("Choose between 2 and 10 couples.");
     if (!Number.isFinite(timerSeconds) || timerSeconds < 0 || timerSeconds > 3600) {
       return setError("Set the timer between 0 and 3600 seconds, or 0 for no timer.");
     }
@@ -275,7 +279,7 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit, def
       sides,
       categories,
       roundCount: game === "board" ? 0 : Math.min(roundCount, Math.max(questionCount, 1)),
-      timerSeconds: Math.round(timerSeconds),
+      timerSeconds: game === "spouses" ? 0 : Math.round(timerSeconds), // a memory game has no countdown
       showHints: gameHasHints(game) ? showHints : true,
       playMode,
       firstTurn: first,
@@ -349,7 +353,7 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit, def
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               {game !== "board" && (
-                <Field label="Number of rounds" className="w-40">
+                <Field label={game === "spouses" ? "Number of couples" : "Number of rounds"} className="w-40">
                   <input
                     type="number"
                     min={1}
@@ -360,7 +364,12 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit, def
                   />
                 </Field>
               )}
-              <Field label={game === "board" ? "Seconds per clue" : "Seconds per round"} className="w-40" hint="0 means no timer.">
+              {game !== "spouses" && (
+              <Field
+                label={game === "board" ? "Seconds per clue" : game === "relay" ? "Seconds to find it" : "Seconds per round"}
+                className="w-40"
+                hint="0 means no timer."
+              >
                 <input
                   type="number"
                   min={0}
@@ -370,6 +379,7 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit, def
                   className="input"
                 />
               </Field>
+              )}
               {gameHasHints(game) && (
                 <label className="flex cursor-pointer items-center gap-2 pt-5 text-sm">
                   <input
@@ -718,6 +728,8 @@ export default function GameSetupForm({ youths, questions, saving, onSubmit, def
               </label>
             ))}
           </div>
+        ) : game === "relay" ? (
+          <p className="text-sm text-muted">The Bible Relay is a race. The first team to find the verse wins the points, so there are no turns.</p>
         ) : (
           <p className="text-sm text-muted">
             {GAME_LABEL[game]} is always turn by turn. A side that misses can pass the question on for half points, or give it to no one.

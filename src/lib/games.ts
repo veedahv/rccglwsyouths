@@ -22,6 +22,9 @@ import {
   SCRAMBLE_STARTER,
   WHO_AM_I_STARTER,
   BOOK_GUESS_STARTER,
+  SPOUSES_STARTER,
+  SPOUSE_QUIZ_STARTER,
+  RELAY_STARTER,
 } from "./gameStarterBank";
 import { BLANK, gameAlwaysTurns, hasStarted } from "@/types/games";
 import type {
@@ -158,6 +161,10 @@ function questionKey(q: Pick<GameQuestion, "game" | "category" | "answer" | "sta
   const body =
     q.game === "scramble" || q.game === "whoAmI"
       ? q.answer ?? ""
+      : q.game === "relay"
+        ? q.statement ?? ""
+      : q.game === "spouses" || q.game === "spouseQuiz"
+        ? `${q.statement ?? ""}${q.answer ?? ""}`
       : q.game === "emoji" || q.game === "bookGuess"
         ? `${q.emojis ?? ""}${q.answer ?? ""}`
         : q.game === "board"
@@ -196,6 +203,24 @@ export async function seedStarterQuestions(existing: GameQuestion[]): Promise<nu
   for (const [category, entries] of Object.entries(EMOJI_STARTER)) {
     for (const [emojis, answer, hint, reference] of entries) {
       const q = { game: "emoji" as const, category, emojis, answer, hint, reference, createdAt: now };
+      if (!have.has(questionKey(q))) toAdd.push(q);
+    }
+  }
+  for (const [category, entries] of Object.entries(SPOUSE_QUIZ_STARTER)) {
+    for (const [statement, answer, reference] of entries) {
+      const q = { game: "spouseQuiz" as const, category, statement, answer, reference, createdAt: now };
+      if (!have.has(questionKey(q))) toAdd.push(q);
+    }
+  }
+  for (const [category, entries] of Object.entries(RELAY_STARTER)) {
+    for (const [statement, value] of entries) {
+      const q = { game: "relay" as const, category, statement, value, createdAt: now };
+      if (!have.has(questionKey(q))) toAdd.push(q);
+    }
+  }
+  for (const [category, entries] of Object.entries(SPOUSES_STARTER)) {
+    for (const [statement, answer, reference] of entries) {
+      const q = { game: "spouses" as const, category, statement, answer, reference, createdAt: now };
       if (!have.has(questionKey(q))) toAdd.push(q);
     }
   }
@@ -242,6 +267,9 @@ export async function seedStarterQuestions(existing: GameQuestion[]): Promise<nu
  * - Scripture or Cap: "quote | scripture or cap | note", where the note is the
  *   verse for Scripture or where a Cap saying really comes from
  * - Emoji Bible Trivia: "emojis | answer | hint | reference" (hint and reference optional)
+ * - Name the Spouse: "person | spouse (or several, separated by commas) | reference" (reference optional)
+ * - Bible Relay: "reference | points", e.g. "John 3:16 | 1"
+ * - Bible Couples: "person | spouse | reference" (reference optional)
  * - Guess the Book: "emojis | book | scene" (scene optional), e.g. "🐋🧍‍♂️ | Jonah | Jonah swallowed by a great fish (Jonah 1-2)"
  * - Fill in the missing word: "verse with ___ | missing words | reference",
  *   with several missing words separated by commas, in order
@@ -272,6 +300,19 @@ export function parseBulk(
         continue;
       }
       questions.push({ game, category, emojis: parts[0], answer: parts[1], hint: parts[2] || undefined, reference: parts[3] || undefined });
+    } else if (game === "relay") {
+      const value = Number(parts[1] || 1);
+      if (!parts[0] || !Number.isInteger(value) || value <= 0) {
+        skipped++;
+        continue;
+      }
+      questions.push({ game, category, statement: parts[0], value });
+    } else if (game === "spouses" || game === "spouseQuiz") {
+      if (!parts[0] || !parts[1]) {
+        skipped++;
+        continue;
+      }
+      questions.push({ game, category, statement: parts[0], answer: parts[1], reference: parts[2] || undefined });
     } else if (game === "bookGuess") {
       if (!parts[0] || !parts[1]) {
         skipped++;
@@ -381,6 +422,35 @@ export function questionToRound(q: GameQuestion): GameRound {
         category: q.category,
         awards: {},
       };
+    case "relay":
+      return {
+        questionId: q.id,
+        prompt: (q.statement ?? "").trim(),
+        answer: "",
+        category: q.category,
+        value: q.value ?? 1,
+        awards: {},
+      };
+    case "spouseQuiz":
+      return {
+        questionId: q.id,
+        prompt: (q.statement ?? "").trim(),
+        // Several correct answers are kept as a comma-separated list and shown as "A or B".
+        answer: (q.answer ?? "").split(",").map((a) => a.trim()).filter(Boolean).join(", "),
+        reference: q.reference,
+        category: q.category,
+        awards: {},
+      };
+    case "spouses":
+      return {
+        questionId: q.id,
+        prompt: (q.statement ?? "").trim(),
+        answer: (q.answer ?? "").trim(),
+        reference: q.reference,
+        category: q.category,
+        played: false,
+        awards: {},
+      };
     case "bookGuess":
       return {
         questionId: q.id,
@@ -447,6 +517,31 @@ export function cluesByBook(questions: GameQuestion[]): Record<string, GameQuest
 
 /** Picks `count` distinct questions at random and freezes them into rounds. */
 export function buildRounds(questions: GameQuestion[], count: number): GameRound[] {
+  // Bible Relay: draw evenly from each difficulty, then play them easiest to hardest, so every
+  // game builds up the same way and no team's luck depends on one tier.
+  if (questions.length > 0 && questions.every((q) => q.game === "relay")) {
+    const tiers = Object.values(
+      questions.reduce<Record<string, GameQuestion[]>>((acc, q) => ((acc[q.category] ??= []).push(q), acc), {})
+    ).map((list) => shuffle(list));
+    const picked: GameQuestion[] = [];
+    for (let i = 0; picked.length < count && tiers.some((t) => i < t.length); i++) {
+      for (const tier of tiers) if (i < tier.length && picked.length < count) picked.push(tier[i]);
+    }
+    return picked.sort((a, b) => (a.value ?? 1) - (b.value ?? 1)).map(questionToRound);
+  }
+  // Bible Couples: every name must appear once on the table, so a couple that repeats a name
+  // already in the game (two Josephs) is left out.
+  if (questions.length > 0 && questions.every((q) => q.game === "spouses")) {
+    const used = new Set<string>();
+    const picked: GameQuestion[] = [];
+    for (const q of shuffle(questions)) {
+      const names = [(q.statement ?? "").trim().toLowerCase(), (q.answer ?? "").trim().toLowerCase()];
+      if (picked.length >= count || names.some((n) => used.has(n))) continue;
+      names.forEach((n) => used.add(n));
+      picked.push(q);
+    }
+    return picked.map(questionToRound);
+  }
   // Guess the Book: a book can have several clues. Pick one at random per book, so no book comes up twice.
   if (questions.length > 0 && questions.every((q) => q.game === "bookGuess")) {
     return shuffle(Object.values(cluesByBook(questions)).map((clues) => shuffle(clues)[0]))
@@ -493,16 +588,23 @@ export async function createSession(data: {
   firstTurn?: number; // index into `sides` of the side that goes first (turn by turn)
 }): Promise<string> {
   const { board, playMode: chosenMode, firstTurn, ...rest } = data;
-  const playMode: PlayMode = gameAlwaysTurns(data.game) ? "turns" : chosenMode ?? "free";
+  const playMode: PlayMode = gameAlwaysTurns(data.game) ? "turns" : data.game === "relay" ? "free" : chosenMode ?? "free";
   const first = Math.min(Math.max(firstTurn ?? 0, 0), Math.max(data.sides.length - 1, 0));
   const overlayKey = data.eventId ? "" : newOverlayKey();
   const session: Omit<GameSession, "id"> = {
     ...rest,
     overlayKey,
-    // A quiz board opens on the board itself (-1); every other game opens on round 1.
-    currentRound: board ? -1 : 0,
+    // A quiz board opens on the board itself (-1), and so does Bible Couples (on its cards);
+    // every other game opens on round 1.
+    currentRound: board || data.game === "spouses" ? -1 : 0,
+    // Bible Couples: two face-down cards for each couple, shuffled.
+    ...(data.game === "spouses"
+      ? { cards: shuffle(data.rounds.flatMap((_, r) => [{ r, s: 0 as const }, { r, s: 1 as const }])), flipped: [] }
+      : {}),
     ...(board ? { boardCategories: board.categories, boardValues: board.values } : {}),
     playMode,
+    // Bible Relay: the verse stays hidden until the host calls it.
+    ...(data.game === "relay" ? { called: false } : {}),
     ...(playMode === "turns" ? { turnIndex: first, turnStart: first, passes: 0 } : {}),
     // Who Am I? starts each round with its first clue showing.
     ...(data.game === "whoAmI" ? { cluesShown: 1 } : {}),
@@ -554,6 +656,25 @@ export async function deleteSession(session: Pick<GameSession, "id" | "overlayKe
  * components can draw it.
  */
 export function redactForDisplay(session: GameSession): GameSession {
+  // Bible Couples: a card's name is sent only while that card is face up (or its couple is matched).
+  if (session.game === "spouses") {
+    const up = new Set(session.flipped ?? []);
+    const cards = session.cards ?? [];
+    const live = hasStarted(session);
+    const rounds: GameRound[] = session.rounds.map((r, i) => {
+      const shows = (s: 0 | 1) => live && (!!r.played || cards.some((c, k) => c.r === i && c.s === s && up.has(k)));
+      return {
+        questionId: r.questionId,
+        category: "",
+        prompt: shows(0) ? r.prompt : "",
+        answer: shows(1) ? r.answer : "",
+        reference: r.played ? r.reference : undefined,
+        awards: r.awards,
+        played: r.played,
+      };
+    });
+    return { ...session, rounds, createdBy: "", createdByName: undefined, overlayKey: undefined };
+  }
   const cluesShown = session.cluesShown ?? 1;
   // Before the game starts nothing is on screen, so not even the first question is sent.
   const live = hasStarted(session);
@@ -568,7 +689,8 @@ export function redactForDisplay(session: GameSession): GameSession {
       played: r.played,
     };
     if (!live || i !== session.currentRound || session.status === "finished") return out;
-    out.prompt = r.prompt;
+    // Bible Relay: the verse is not sent until the host calls it, so nobody can read it ahead of time.
+    out.prompt = session.game === "relay" && !session.called ? "" : r.prompt;
     if (session.showHints !== false) out.hint = r.hint;
     if (r.clues) out.clues = r.clues.map((c, idx) => (idx < cluesShown ? c : ""));
     if (session.revealed) {

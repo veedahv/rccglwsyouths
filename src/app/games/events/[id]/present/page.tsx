@@ -6,6 +6,8 @@ import Link from "next/link";
 import { subscribeEvent, subscribeEventSessions, summarizeEvent } from "@/lib/gameEvents";
 import { useRoundTimer } from "@/lib/useRoundTimer";
 import RequireAuth from "@/components/RequireAuth";
+import PresentFrame from "@/components/PresentFrame";
+import { EventResult } from "@/components/ResultCard";
 import { EventCover, OverallBoard, SessionBigScreen } from "@/components/EventScreens";
 import { Loading, Notice } from "@/components/ui";
 import type { GameEvent, GameSession } from "@/types/games";
@@ -70,32 +72,33 @@ function PresentInner() {
     );
   }
 
+  const final = event.view === "final";
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-mist">
-      <div className="mx-auto flex min-h-full max-w-6xl flex-col px-6 py-6 sm:px-10">
-        <header className="mb-6 flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="truncate font-display text-xl font-bold text-rccg-purple-800 sm:text-3xl">{active ? active.title : event.title}</p>
-            <p className="text-sm text-muted">
-              {active ? event.title : event.view === "final" ? "Final result" : "Standings so far"}
-            </p>
-          </div>
-          <Link href={`/games/events/${event.id}`} className="btn-ghost shrink-0 !text-muted">
-            Exit
-          </Link>
-        </header>
-
-        {active ? (
-          <SessionBigScreen session={active} timer={timer} />
-        ) : (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="w-full">
-              <OverallBoard summary={summary} large final={event.view === "final"} />
+    <PresentFrame
+      title={active ? active.title : event.title}
+      subtitle={active ? event.title : final ? "Final result" : "Standings so far"}
+      exitHref={`/games/events/${event.id}`}
+    >
+      {active ? (
+        <SessionBigScreen session={active} timer={timer} />
+      ) : final ? (
+        // The result card names the winner; the table under it shows how each game went.
+        <div className="mx-auto w-full max-w-5xl space-y-8">
+          <EventResult summary={summary} final large />
+          {summary.results.length > 0 && (
+            <div className="rounded-3xl bg-white/80 p-6 shadow-sm">
+              <OverallBoard summary={summary} large final bare />
             </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="w-full">
+            <OverallBoard summary={summary} large />
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </PresentFrame>
   );
 }
 

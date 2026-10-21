@@ -13,7 +13,7 @@ export interface EventDraft {
   plannedGames: GameKind[];
 }
 
-const ALL_GAMES: GameKind[] = ["scramble", "bibleOrCap", "emoji", "bookGuess", "fillBlank", "whoAmI", "board"];
+const ALL_GAMES: GameKind[] = ["scramble", "bibleOrCap", "emoji", "bookGuess", "spouses", "spouseQuiz", "relay", "fillBlank", "whoAmI", "board"];
 
 /** "Wednesday · 21 October 2026 · 5:00 PM", from a date (yyyy-MM-dd) and a time (HH:mm), either of which can be left out. */
 function whenLine(date: string, time: string): string | undefined {

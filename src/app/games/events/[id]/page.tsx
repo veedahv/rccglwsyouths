@@ -137,6 +137,7 @@ function EventInner() {
     const rounds = board ? board.rounds : buildRounds(pool, draft.roundCount);
     if (rounds.length === 0) return setError("None of those categories have questions yet.");
     if (board && board.categories.length < 2) return setError("The board needs at least two categories that have clues with point values.");
+    if (draft.game === "spouses" && rounds.length < 2) return setError("Bible Couples needs at least two couples with different names. Add more to the question bank.");
     setError(null);
     setBusy(true);
     try {

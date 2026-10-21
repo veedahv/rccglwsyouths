@@ -121,3 +121,30 @@
 .animate-shake {
   animation: teaser-shake 0.5s ease-in-out;
 }
+
+/* Overlay: a card or banner pops in when a pick happens. */
+@keyframes overlay-pop {
+  0% { transform: scale(0.85); opacity: 0; }
+  60% { transform: scale(1.04); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.animate-pop {
+  animation: overlay-pop 0.35s ease-out;
+}
+
+/* Confetti: each piece falls from above the screen, spinning and drifting sideways. */
+@keyframes confetti-fall {
+  0% { transform: translate3d(0, -12vh, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate3d(var(--drift, 0px), 112vh, 0) rotate(720deg); opacity: 1; }
+}
+.confetti-piece {
+  position: absolute;
+  top: 0;
+  animation-name: confetti-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .confetti-piece { display: none; }
+}
+
