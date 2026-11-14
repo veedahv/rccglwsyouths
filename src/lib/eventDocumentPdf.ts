@@ -212,7 +212,7 @@ function drawAgenda(ctx: Ctx, event: ChurchEvent, ownerNames: Record<string, str
   drawTableHeader(ctx, cols);
   for (const a of event.agenda) {
     drawRow(ctx, cols, [
-      { text: pdfSafe(a.time ?? "") },
+      { text: pdfSafe(formatTime(a.time)) },
       { text: pdfSafe(a.item) },
       { text: pdfSafe(a.owner ? ownerNames[a.owner] ?? "" : "") },
     ]);

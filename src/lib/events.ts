@@ -7,9 +7,11 @@ import {
   getDocs,
   query,
   orderBy,
+  onSnapshot,
+  type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
-import type { ChurchEvent, AgendaItem, EventTask, BudgetItem, NeededItem } from "@/types";
+import type { ChurchEvent, AgendaItem, EventTask, BudgetItem, NeededItem, EventScreen } from "@/types";
 
 export async function listEvents(): Promise<ChurchEvent[]> {
   const q = query(collection(db, "events"), orderBy("date", "desc"));
@@ -114,4 +116,30 @@ export async function updateEventAfterEventReport(id: string, afterEventReport: 
 /** Links a contribution drive (created elsewhere) back to the event it was started for. */
 export async function linkEventContribution(id: string, contributionId: string): Promise<void> {
   await updateDoc(doc(db, "events", id), { contributionId });
+}
+
+/** Links a games event (created on /games) to this event, or unlinks it when `gamesEventId` is empty. */
+export async function linkEventGames(id: string, gamesEventId: string): Promise<void> {
+  await updateDoc(doc(db, "events", id), { gamesEventId });
+}
+
+/** One event, kept live. The big-screen page listens with this so it follows whatever the exco picks. */
+export function subscribeChurchEvent(
+  id: string,
+  onChange: (event: ChurchEvent | null) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return onSnapshot(
+    doc(db, "events", id),
+    (snap) => onChange(snap.exists() ? { id: snap.id, ...(snap.data() as Omit<ChurchEvent, "id">) } : null),
+    (err) => onError?.(err)
+  );
+}
+
+/** Saves the big-screen settings (what is shown, colours, icons, tagline, agenda item that is on now). */
+export async function updateEventScreen(id: string, screen: EventScreen): Promise<void> {
+  const clean: Record<string, unknown> = { view: screen.view, palette: screen.palette, icons: screen.icons };
+  if (screen.tagline?.trim()) clean.tagline = screen.tagline.trim();
+  if (screen.nowIndex !== undefined) clean.nowIndex = screen.nowIndex;
+  await updateDoc(doc(db, "events", id), { screen: clean });
 }

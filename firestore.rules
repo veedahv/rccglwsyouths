@@ -208,6 +208,13 @@ service cloud.firestore {
     match /gameEvents/{eventId} {
       allow read: if isExco();
       allow write: if hasPermission('canEditEvents');
+
+      // External games: played away from the screen and only recorded (teams and
+      // scores, or rounds and places), each with its own hosts.
+      match /externalGames/{gameId} {
+        allow read: if isExco();
+        allow write: if hasPermission('canEditEvents');
+      }
     }
 
     match /gameSessions/{sessionId} {
@@ -246,6 +253,13 @@ service cloud.firestore {
             && !('eventId' in request.resource.data));
       allow delete: if hasPermission('canEditEvents')
         || (isExco() && resource.data.createdBy == request.auth.uid && resource.data.status == 'suggested');
+    }
+
+    // The extras typed in for the planner's "Year in review" slideshow (a tagline, and highlights the
+    // app doesn't otherwise know about). One doc per year, id = the year.
+    match /yearReviews/{year} {
+      allow read: if isExco();
+      allow write: if hasPermission('canEditEvents');
     }
 
     match /activities/{activityId} {

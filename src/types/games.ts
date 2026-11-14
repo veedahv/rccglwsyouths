@@ -230,12 +230,61 @@ export interface GameEvent {
   guests?: GamePlayer[];
   // The host or hosts. They run the games, so they are never picked to play.
   hosts?: GamePlayer[];
+  // People who joined a team partway through and were only marked present: person ID -> team name.
+  lateTeams?: Record<string, string>;
+  // The church event (/events/{id}) this games event belongs to, e.g. Fitness Day or Love Feast.
+  // When set, attendance is taken on that event's page and this page reads it from there.
+  churchEventId?: string;
   view: EventView;
   activeSessionId?: string; // the game on screen while view is "game" ("" or missing otherwise)
   overlayKey: string; // private ID of the event's OBS overlay (see /overlay/[key])
   status: GameStatus; // "finished" once the final result has been shown
   createdBy: string;
   createdByName: string;
+  createdAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* External games: played away from the screen, only recorded here       */
+/* ------------------------------------------------------------------ */
+
+// A game that is played for real (football, egg race, sack race…) and only recorded in the app.
+// It lives at /gameEvents/{eventId}/externalGames/{id}, so it belongs to a games event, which may
+// itself be linked to a church event. Every external game has its own hosts.
+//  - "teams": two or more teams with a score each (football, tug of war). Teams can be made by the
+//    system (boys vs girls, or a random draw) or by hand, and edited afterwards.
+//  - "rounds": rounds of individual players, each with the places they finished in
+//    (egg race: round 1 has 6 people, then we note who came 1st, 2nd, 3rd…).
+
+/** How the teams of an external game were made. */
+export type TeamPick = "gender" | "random" | "manual";
+
+export type ExternalFormat = "teams" | "rounds";
+
+export const EXTERNAL_FORMAT_LABEL: Record<ExternalFormat, string> = {
+  teams: "Teams with a score",
+  rounds: "Rounds with places",
+};
+
+export interface ExternalRound {
+  id: string;
+  name: string; // "Round 1", "Semi-final", "Final"
+  players: GamePlayer[]; // who ran in this round
+  placings: string[]; // player IDs, first place first. Not everyone has to be placed.
+}
+
+export interface ExternalGame {
+  id: string;
+  title: string; // "Football", "Egg race"
+  format: ExternalFormat;
+  hosts: GamePlayer[]; // whoever runs this game. They never play it.
+  status: GameStatus; // "finished" once the result is final
+  notes?: string;
+  // format "teams"
+  sides?: GameSide[];
+  scores?: Record<string, number>; // sideId -> goals/points
+  // format "rounds"
+  rounds?: ExternalRound[];
   createdAt: string;
 }
 

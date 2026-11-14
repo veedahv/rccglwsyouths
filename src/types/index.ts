@@ -324,6 +324,19 @@ export interface EventExpense {
   createdAt: string;
 }
 
+// How an event looks on the big screen (see lib/eventScreen.ts and /events/[id]/present).
+export type ScreenView = "cover" | "agenda";
+export type ScreenPalette = "white" | "navy" | "sky" | "green" | "red" | "gold" | "dark";
+export type ScreenIconSet = "love" | "food" | "community" | "football" | "outdoor" | "worship" | "celebration" | "learning";
+
+export interface EventScreen {
+  view: ScreenView; // what the screen is showing right now
+  palette: ScreenPalette; // the background and colours
+  icons: ScreenIconSet[]; // the faded icons behind the content. Several sets can be mixed; none means no icons.
+  tagline?: string; // a line at the bottom of the cover, e.g. "Come hungry!"
+  nowIndex?: number; // the agenda item that is on now (-1 or missing: none)
+}
+
 export interface ChurchEvent {
   id: string;
   title: string;
@@ -341,6 +354,8 @@ export interface ChurchEvent {
   planningNotes?: string; // freeform thoughts/suggestions while planning, before the event happens
   afterEventReport?: string; // what used to be called "minutes" for an event — written once it's concluded
   contributionId?: string; // set once a contribution drive has been started for this event
+  screen?: EventScreen; // big-screen settings: what is shown, plus its colours and icons
+  gamesEventId?: string; // set when a games event (/gameEvents/{id}) is linked to this event
   programmeId?: string; // set when the event was created from a programme on the yearly planner
   createdBy: string;
   createdAt: string;

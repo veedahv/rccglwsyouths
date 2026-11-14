@@ -20,6 +20,7 @@ import { formatPersonName } from "@/lib/formatName";
 import RequireAuth from "@/components/RequireAuth";
 import ProgrammeForm from "@/components/ProgrammeForm";
 import ProgrammeCard from "@/components/ProgrammeCard";
+import YearReviewCard from "@/components/YearReviewCard";
 import { Page, PageHeader, Card, Stat, Loading, EmptyState, Notice } from "@/components/ui";
 import type { ChurchEvent, Programme, ProgrammeStatus } from "@/types";
 
@@ -168,6 +169,8 @@ function PlannerInner() {
           </>
         }
       />
+
+      <YearReviewCard />
 
       {showForm && (
         <Card title="Suggest a programme" description="Rough is fine. Everyone can add ideas; approving is up to those who manage events." className="mb-6">

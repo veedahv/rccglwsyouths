@@ -68,9 +68,15 @@ export async function recordDuesPayment(params: {
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   await runTransaction(db, async (tx) => {
-    for (const { yearMonth, amount } of months) {
-      const ref = doc(db, `youths/${youthId}/dues/${yearMonth}`);
-      const snap = await tx.get(ref);
+    // Firestore requires every read in a transaction to happen BEFORE the first write. Reading
+    // each month right before writing it worked for one month but failed as soon as a payment
+    // covered two or more, so all the months are read up front here.
+    const refs = months.map(({ yearMonth }) => doc(db, `youths/${youthId}/dues/${yearMonth}`));
+    const snaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+
+    months.forEach(({ yearMonth, amount }, i) => {
+      const ref = refs[i];
+      const snap = snaps[i];
 
       const newPayment: Payment = { amount, method, date, recordedBy, groupId };
 
@@ -90,7 +96,7 @@ export async function recordDuesPayment(params: {
         };
         tx.set(ref, record);
       }
-    }
+    });
   });
 }
 
@@ -127,6 +133,20 @@ export function currentYearMonth(): string {
   const now = new Date();
   const month = String(now.getMonth() + 1).padStart(2, "0");
   return `${now.getFullYear()}-${month}`;
+}
+
+/**
+ * The default selected month for a given year: the current calendar
+ * month, placed in that year (e.g. viewing 2025 in Nov 2026 -> "2025-11").
+ */
+export function defaultYearMonth(year: number): string {
+  const month = String(new Date().getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+/** All twelve months of a year as "yyyy-MM", January to December. */
+export function monthsOfYear(year: number): string[] {
+  return Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, "0")}`);
 }
 
 /**

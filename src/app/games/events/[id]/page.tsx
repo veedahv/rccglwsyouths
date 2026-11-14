@@ -15,16 +15,23 @@ import {
   writeEventOverlay,
 } from "@/lib/gameEvents";
 import { listYouths } from "@/lib/youths";
+import { getEvent as getChurchEvent } from "@/lib/events";
+import { getAttendanceForGathering } from "@/lib/attendance";
+import { subscribeExternalGames } from "@/lib/externalGames";
+import { formatPersonName } from "@/lib/formatName";
 import { useAuth } from "@/lib/useAuth";
 import RequireAuth from "@/components/RequireAuth";
 import ObsCard from "@/components/ObsCard";
 import GameAttendance, { type AttendancePatch } from "@/components/GameAttendance";
+import HostPicker from "@/components/HostPicker";
+import ExternalGames from "@/components/ExternalGames";
 import GameSetupForm, { type GameDraft } from "@/components/GameSetupForm";
 import { OverallBoard } from "@/components/EventScreens";
+import FinalStandings from "@/components/FinalStandings";
 import { Page, PageHeader, Card, Badge, Loading, EmptyState, Notice } from "@/components/ui";
 import { GAME_LABEL, MODE_LABEL, hasStarted } from "@/types/games";
-import type { EventView, GameEvent, GameQuestion, GameSession } from "@/types/games";
-import type { Youth } from "@/types";
+import type { EventView, ExternalGame, GameEvent, GamePlayer, GameQuestion, GameSession } from "@/types/games";
+import type { ChurchEvent, Youth } from "@/types";
 
 const VIEW_LABEL: Record<EventView, string> = {
   cover: "Cover",
@@ -48,6 +55,10 @@ function EventInner() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overlayProblem, setOverlayProblem] = useState(false);
+  const [externalGames, setExternalGames] = useState<ExternalGame[]>([]);
+  // When this games event is linked to a church event, that event's attendance is the attendance here.
+  const [churchEvent, setChurchEvent] = useState<ChurchEvent | null>(null);
+  const [linkedPresent, setLinkedPresent] = useState<string[]>([]);
 
   useEffect(() => {
     const off = [
@@ -63,9 +74,25 @@ function EventInner() {
         }
       ),
       subscribeEventSessions(id, setSessions, () => setError("Couldn't load this event's games.")),
+      subscribeExternalGames(id, setExternalGames, () => setError("Couldn't load this event's external games.")),
     ];
     return () => off.forEach((f) => f());
   }, [id]);
+
+  const churchEventId = event?.churchEventId || "";
+  useEffect(() => {
+    if (!churchEventId) {
+      setChurchEvent(null);
+      setLinkedPresent([]);
+      return;
+    }
+    Promise.all([getChurchEvent(churchEventId), getAttendanceForGathering("events", churchEventId)])
+      .then(([ce, present]) => {
+        setChurchEvent(ce);
+        setLinkedPresent([...present]);
+      })
+      .catch(() => setError("Couldn't load the linked event's attendance."));
+  }, [churchEventId]);
 
   // The player list and question bank are only needed when adding a game.
   useEffect(() => {
@@ -212,8 +239,21 @@ function EventInner() {
     );
   }
 
+  // Linked to a church event: who is present comes from that event's attendance (taken on its page).
+  // Everything below reads attendance from `shared`, so a linked and an unlinked event behave the same.
+  const linked = !!churchEventId && !!churchEvent;
+  const shared: GameEvent = linked ? { ...event, presentIds: linkedPresent, guests: [] } : event;
+
   // Once anyone is marked present, games pick only from the people present.
-  const attendanceTaken = (event.presentIds?.length ?? 0) + (event.guests?.length ?? 0) > 0;
+  const attendanceTaken = (shared.presentIds?.length ?? 0) + (shared.guests?.length ?? 0) > 0;
+
+  // Everyone who can play an external game: the people present (or every active youth when no one is marked), plus guests.
+  const pool: GamePlayer[] = [
+    ...youths
+      .filter((y) => !attendanceTaken || (shared.presentIds ?? []).includes(y.id))
+      .map((y) => ({ id: y.id, name: formatPersonName(y.name, y.gender), gender: y.gender })),
+    ...(shared.guests ?? []),
+  ];
 
   const active = event.view === "game" ? sessions.find((s) => s.id === event.activeSessionId) : undefined;
   const screenNow = active ? active.title : VIEW_LABEL[event.view];
@@ -228,6 +268,11 @@ function EventInner() {
         description={[event.subtitle, event.venue].filter(Boolean).join(" · ") || undefined}
         actions={
           <>
+            {linked && (
+              <Link href={`/events/${churchEventId}`} className="btn-ghost">
+                Event: {churchEvent?.title}
+              </Link>
+            )}
             <Badge tone={event.status === "finished" ? "gray" : "green"} dot={event.status !== "finished"}>
               {event.status === "finished" ? "Finished" : "Live"}
             </Badge>
@@ -284,7 +329,36 @@ function EventInner() {
           </p>
         </Card>
 
-        <GameAttendance event={event} youths={youths} canEdit={canRun} onChange={saveAttendance} />
+        {linked ? (
+          <Card
+            title="Attendance and hosts"
+            description="Attendance for these games is taken on the event's page, so it is only taken once."
+            action={
+              <Link href={`/events/${churchEventId}`} className="btn-secondary btn-sm">
+                Take attendance
+              </Link>
+            }
+          >
+            <p className="mb-3 text-sm text-muted">
+              <span className="num font-semibold text-ink">{linkedPresent.length}</span> marked present on{" "}
+              <span className="font-medium text-ink">{churchEvent?.title}</span>
+              {!attendanceTaken && ". No one is marked yet, so games can pick from every active youth. (The event's attendance list opens once its date arrives.)"}
+            </p>
+            <span className="label">Hosts of the games on screen</span>
+            <HostPicker
+              hosts={event.hosts ?? []}
+              youths={youths}
+              presentIds={attendanceTaken ? linkedPresent : null}
+              canEdit={canRun}
+              onChange={(hosts) =>
+                updateEvent(event.id, { hosts }).catch(() => setError("Couldn't save the hosts. Check your connection and try again."))
+              }
+              emptyText="No host chosen yet. Games played away from the screen have their own hosts, set on each game."
+            />
+          </Card>
+        ) : (
+          <GameAttendance event={event} youths={youths} canEdit={canRun} onChange={saveAttendance} />
+        )}
 
         <Card
           title="Games"
@@ -311,7 +385,7 @@ function EventInner() {
                 defaultGame={nextPlanned ?? event.plannedGames[0] ?? "scramble"}
                 reuse={lineups}
                 hosts={event.hosts ?? []}
-                attendance={attendanceTaken ? { presentIds: event.presentIds ?? [], guests: event.guests ?? [] } : null}
+                attendance={attendanceTaken ? { presentIds: shared.presentIds ?? [], guests: shared.guests ?? [] } : null}
                 submitLabel="Add game"
               />
             </div>
@@ -360,9 +434,27 @@ function EventInner() {
           )}
         </Card>
 
+        <ExternalGames
+          eventId={event.id}
+          games={externalGames}
+          pool={pool}
+          youths={youths}
+          presentIds={attendanceTaken ? shared.presentIds ?? [] : null}
+          canEdit={canRun}
+        />
+
         <Card title="Overall result" description="Games played by the same sides are added up. Games with different sides are listed on their own.">
           <OverallBoard summary={summary} final={event.status === "finished"} />
         </Card>
+
+        <FinalStandings
+          event={shared}
+          sessions={sessions}
+          summary={summary}
+          youths={youths}
+          canEdit={canRun}
+          onSaveLate={(lateTeams) => updateEvent(event.id, { lateTeams }).catch(() => setError("That didn't save. Check your connection and try again."))}
+        />
 
         {canRun && (
           <>

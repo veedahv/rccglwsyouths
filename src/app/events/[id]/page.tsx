@@ -12,6 +12,7 @@ import {
   budgetTotal,
   updateEventPlanningNotes,
   updateEventAfterEventReport,
+  updateEventScreen,
 } from "@/lib/events";
 import { listExcos } from "@/lib/excos";
 import { listEventDocuments } from "@/lib/eventDocuments";
@@ -35,6 +36,8 @@ import BudgetLines from "@/components/BudgetLines";
 import EventExpenses, { ExpensePrefill } from "@/components/EventExpenses";
 import NeededItemsCard from "@/components/NeededItemsCard";
 import EventContributionPanel from "@/components/EventContributionPanel";
+import EventGamesPanel from "@/components/EventGamesPanel";
+import EventScreenCard from "@/components/EventScreenCard";
 import AttendanceChecklist from "@/components/AttendanceChecklist";
 import AgendaEditor from "@/components/AgendaEditor";
 import TaskAssignment from "@/components/TaskAssignment";
@@ -53,12 +56,13 @@ import type {
   Contribution,
   EventDocument,
   EventExpense,
+  EventScreen,
 } from "@/types";
 
 const SAVE_ERROR = "That didn't save. Check your connection and try again.";
 
 function EventDetailInner({ id }: { id: string }) {
-  const { user, hasPermission } = useAuth();
+  const { user, exco, hasPermission } = useAuth();
   const [event, setEvent] = useState<ChurchEvent | null>(null);
   // Agenda/task ownership draws on excos; attendance is tracked against
   // the youth roster; tasks can go to either (see TaskAssignment).
@@ -152,6 +156,13 @@ function EventDetailInner({ id }: { id: string }) {
     const previous = event;
     setEvent({ ...event, agenda }); // optimistic
     void attempt(() => updateEventAgenda(id, agenda), () => setEvent(previous));
+  }
+
+  function handleScreenChange(screen: EventScreen) {
+    if (!event) return;
+    const previous = event;
+    setEvent({ ...event, screen }); // optimistic, so the preview changes at once
+    void attempt(() => updateEventScreen(id, screen), () => setEvent(previous));
   }
 
   function handleTasksChange(tasks: EventTask[]) {
@@ -318,10 +329,20 @@ function EventDetailInner({ id }: { id: string }) {
               canStart={canStartContribution}
               onStart={() => setShowStartContribution(true)}
             />
+
+            <EventGamesPanel
+              event={event}
+              canEdit={canEditEvent}
+              createdBy={user?.uid ?? ""}
+              createdByName={exco?.name ?? user?.email ?? "Unknown"}
+              onChange={(gamesEventId) => setEvent((current) => (current ? { ...current, gamesEventId } : current))}
+            />
           </div>
 
           {/* Planning: the side column */}
           <div className="space-y-6 xl:col-span-2">
+            <EventScreenCard event={event} excos={excos} canEdit={canEditEvent} onChange={handleScreenChange} />
+
             <Card
               title="Agenda"
               description={event.agenda.length > 0 ? `${event.agenda.length} ${event.agenda.length === 1 ? "item" : "items"}` : undefined}

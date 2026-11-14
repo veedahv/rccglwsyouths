@@ -46,6 +46,7 @@ module.exports = {
       },
       fontFamily: {
         sans: ["var(--font-body)", "ui-sans-serif", "system-ui", "sans-serif"],
+        title: ["var(--font-title)", "Georgia", "serif"],
         display: ["var(--font-display)", "var(--font-body)", "ui-sans-serif", "system-ui", "sans-serif"],
       },
     },

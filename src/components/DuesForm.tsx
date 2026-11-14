@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  currentYearMonth,
+  defaultYearMonth,
+  monthsOfYear,
   getExistingDues,
   recordDuesPayment,
   splitEvenly,
@@ -14,15 +15,10 @@ import { formatPersonName } from "@/lib/formatName";
 import { naira, todayISO } from "@/lib/format";
 import { Field, Notice } from "@/components/ui";
 
-// Builds the last 12 months as "yyyy-MM" options, newest first.
-function recentMonths(count = 12): string[] {
-  const months: string[] = [];
-  const now = new Date();
-  for (let i = 0; i < count; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  }
-  return months;
+// Month name only (e.g. "March") — the year is already shown by the page.
+function formatMonthName(yearMonth: string) {
+  const [y, m] = yearMonth.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleString("default", { month: "long" });
 }
 
 function formatMonth(yearMonth: string) {
@@ -35,18 +31,19 @@ function formatMonth(yearMonth: string) {
 
 interface Props {
   youths: Youth[]; // pass in from /youths query
+  year: number; // the year shown on the page; months to pick from are all 12 months of this year
   onSaved?: () => void; // called after a successful payment, so a parent page can refresh its data
 }
 
-export default function DuesForm({ youths, onSaved }: Props) {
+export default function DuesForm({ youths, year, onSaved }: Props) {
   const { user } = useAuth();
   const [youthId, setYouthId] = useState("");
   const [amount, setAmount] = useState<number>(1000);
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [date, setDate] = useState(() => todayISO());
 
-  // Current month is preselected by default, per the platform's rule.
-  const [selectedMonths, setSelectedMonths] = useState<string[]>([currentYearMonth()]);
+  // The current month (placed in the page's year) is preselected by default.
+  const [selectedMonths, setSelectedMonths] = useState<string[]>([defaultYearMonth(year)]);
   const [splitMode, setSplitMode] = useState<"equal" | "manual">("equal");
   const [manualAmounts, setManualAmounts] = useState<Record<string, number>>({});
 
@@ -56,7 +53,15 @@ export default function DuesForm({ youths, onSaved }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const monthOptions = useMemo(() => recentMonths(12), []);
+  const monthOptions = useMemo(() => monthsOfYear(year), [year]);
+
+  // When the page's year changes, the previously selected months belong to
+  // another year, so reset the selection to the default month of the new year.
+  useEffect(() => {
+    setSelectedMonths([defaultYearMonth(year)]);
+    setManualAmounts({});
+    setConfirmMerge(false);
+  }, [year]);
 
   // Whenever the youth or selected months change, check which months
   // are already paid so we can warn before submitting.
@@ -120,12 +125,14 @@ export default function DuesForm({ youths, onSaved }: Props) {
         recordedBy: user.uid,
       });
       setSuccess(true);
-      setSelectedMonths([currentYearMonth()]);
+      setSelectedMonths([defaultYearMonth(year)]);
       setAmount(1000);
       setConfirmMerge(false);
       onSaved?.();
     } catch (err) {
-      setError("Something went wrong saving this payment. Try again.");
+      console.error("Saving dues failed:", err);
+      const detail = err instanceof Error && err.message ? ` (${err.message})` : "";
+      setError(`Something went wrong saving this payment. Try again.${detail}`);
     } finally {
       setSubmitting(false);
     }
@@ -177,7 +184,7 @@ export default function DuesForm({ youths, onSaved }: Props) {
 
       <div>
         <p className="label">
-          Months covered <span className="font-normal text-muted">(current month is selected by default)</span>
+          Months covered <span className="font-normal text-muted">({year} — current month is selected by default)</span>
         </p>
         <div className="flex flex-wrap gap-2">
           {monthOptions.map((month) => {
@@ -197,7 +204,7 @@ export default function DuesForm({ youths, onSaved }: Props) {
                   paid && !active ? "!border-amber-400" : "",
                 ].join(" ")}
               >
-                {formatMonth(month)}
+                {formatMonthName(month)}
                 {paid && <span className="ml-1" title="Already has a payment">•</span>}
               </button>
             );

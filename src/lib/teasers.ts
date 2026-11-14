@@ -174,7 +174,7 @@ const STARTER: Omit<Teaser, "id" | "createdAt">[] = [
     prompt: "Name 9 books of the Bible with only 4 letters",
     picker: "books",
     answers: asAnswers(booksWhere((b) => b.name.length === 4)),
-    seconds: 75,
+    seconds: 60,
   },
   {
     title: "Books starting with J",
@@ -188,7 +188,7 @@ const STARTER: Omit<Teaser, "id" | "createdAt">[] = [
     prompt: "Name the 12 minor prophets",
     picker: "books",
     answers: asAnswers(booksWhere((b) => b.group === "Minor prophets")),
-    seconds: 75,
+    seconds: 90,
   },
   {
     title: "The 12 disciples",
@@ -209,7 +209,7 @@ const STARTER: Omit<Teaser, "id" | "createdAt">[] = [
       { name: "Judas Iscariot", aliases: ["Judas"] },
     ],
     distractors: ["Paul", "Barnabas", "Matthias", "Mark", "Luke", "Timothy"],
-    seconds: 60,
+    seconds: 90,
   },
   {
     title: "Fruit of the Spirit",

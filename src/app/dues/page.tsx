@@ -78,7 +78,7 @@ function DuesInner() {
 
       {showForm && (
         <Card title="Record a dues payment" className="mb-6">
-          <DuesForm youths={youths} onSaved={refresh} />
+          <DuesForm youths={youths} year={year} onSaved={refresh} />
         </Card>
       )}
 

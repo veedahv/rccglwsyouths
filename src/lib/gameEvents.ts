@@ -13,6 +13,9 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { parseISODate } from "./format";
+import { linkEventGames } from "./events";
+import { deleteExternalGame, listExternalGames } from "./externalGames";
 import { deleteSession, newOverlayKey, sideTotal, updateSession, winners, writeOverlay } from "./games";
 import { MODE_LABEL, hasStarted } from "@/types/games";
 import type {
@@ -211,6 +214,7 @@ export async function createEvent(data: {
   subtitle?: string;
   venue?: string;
   plannedGames: GameKind[];
+  churchEventId?: string;
   createdBy: string;
   createdByName: string;
 }): Promise<string> {
@@ -229,6 +233,47 @@ export async function createEvent(data: {
     // The event page has a "Resync overlay" button if this didn't go through.
   }
   return ref.id;
+}
+
+/**
+ * Starts a games event for a church event (Fitness Day, Love Feast…) and links the two both ways.
+ * The title, when and where are taken from the church event.
+ */
+export async function createGamesEventFor(
+  church: { id: string; title: string; date: string; time?: string; venue?: string },
+  by: { createdBy: string; createdByName: string }
+): Promise<string> {
+  const d = parseISODate(church.date);
+  const parts = [
+    d.toLocaleDateString("en-GB", { weekday: "long" }),
+    d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
+  ];
+  if (church.time) {
+    const [h, m] = church.time.split(":").map(Number);
+    parts.push(`${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`);
+  }
+  const id = await createEvent({
+    title: church.title,
+    subtitle: parts.join(" · "),
+    venue: church.venue?.trim() || undefined,
+    plannedGames: [],
+    churchEventId: church.id,
+    ...by,
+  });
+  await linkEventGames(church.id, id);
+  return id;
+}
+
+/** Links an existing games event to a church event, both ways. */
+export async function linkGamesEvent(gamesEventId: string, churchEventId: string): Promise<void> {
+  await updateDoc(doc(db, "gameEvents", gamesEventId), { churchEventId });
+  await linkEventGames(churchEventId, gamesEventId);
+}
+
+/** Cuts the link both ways. The games, scores and attendance are all kept. */
+export async function unlinkGamesEvent(gamesEventId: string, churchEventId: string): Promise<void> {
+  await updateDoc(doc(db, "gameEvents", gamesEventId), { churchEventId: "" });
+  await linkEventGames(churchEventId, "");
 }
 
 export async function updateEvent(id: string, data: Partial<Omit<GameEvent, "id">>): Promise<void> {
@@ -285,7 +330,16 @@ export async function writeEventOverlay(event: GameEvent, sessions?: GameSession
 export async function deleteEvent(event: GameEvent): Promise<void> {
   const sessions = await fetchEventSessions(event.id);
   for (const s of sessions) await deleteSession({ id: s.id, overlayKey: undefined });
+  // Subcollections aren't deleted with their parent.
+  for (const g of await listExternalGames(event.id)) await deleteExternalGame(event.id, g.id);
   await deleteDoc(doc(db, "gameEvents", event.id));
+  if (event.churchEventId) {
+    try {
+      await linkEventGames(event.churchEventId, "");
+    } catch {
+      // The church event just keeps a stale link, which its page ignores.
+    }
+  }
   try {
     await deleteDoc(doc(db, "gameOverlays", event.overlayKey));
   } catch {
