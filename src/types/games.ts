@@ -218,6 +218,17 @@ export type EventView =
   | "standings" // the overall board so far
   | "final"; // the overall board, with the overall winner
 
+/**
+ * A fitness session in a games event: a warm-up made from the routine under Games, Fitness warm-ups.
+ * It lists the moves chosen for it (by id, see lib/warmups.ts), and a games event can have several
+ * (a warm-up before the games, another before the football…).
+ */
+export interface FitnessSession {
+  id: string;
+  title: string; // e.g. "Warm-up" or "Before the football"
+  moveIds: string[];
+}
+
 export interface GameEvent {
   id: string;
   title: string; // e.g. "Games Day"
@@ -235,6 +246,7 @@ export interface GameEvent {
   // The church event (/events/{id}) this games event belongs to, e.g. Fitness Day or Love Feast.
   // When set, attendance is taken on that event's page and this page reads it from there.
   churchEventId?: string;
+  fitnessSessions?: FitnessSession[]; // the fitness warm-up sessions planned for this games event, in order
   view: EventView;
   activeSessionId?: string; // the game on screen while view is "game" ("" or missing otherwise)
   overlayKey: string; // private ID of the event's OBS overlay (see /overlay/[key])

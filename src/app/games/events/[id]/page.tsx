@@ -25,6 +25,7 @@ import ObsCard from "@/components/ObsCard";
 import GameAttendance, { type AttendancePatch } from "@/components/GameAttendance";
 import HostPicker from "@/components/HostPicker";
 import ExternalGames from "@/components/ExternalGames";
+import FitnessSessions from "@/components/FitnessSessions";
 import GameSetupForm, { type GameDraft } from "@/components/GameSetupForm";
 import { OverallBoard } from "@/components/EventScreens";
 import FinalStandings from "@/components/FinalStandings";
@@ -442,6 +443,8 @@ function EventInner() {
           presentIds={attendanceTaken ? shared.presentIds ?? [] : null}
           canEdit={canRun}
         />
+
+        <FitnessSessions event={event} canEdit={canRun} />
 
         <Card title="Overall result" description="Games played by the same sides are added up. Games with different sides are listed on their own.">
           <OverallBoard summary={summary} final={event.status === "finished"} />

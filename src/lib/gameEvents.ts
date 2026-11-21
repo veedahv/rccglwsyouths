@@ -22,6 +22,7 @@ import type {
   EventOverlay,
   EventSummary,
   EventView,
+  FitnessSession,
   GameEvent,
   GameKind,
   GameResult,
@@ -278,6 +279,13 @@ export async function unlinkGamesEvent(gamesEventId: string, churchEventId: stri
 
 export async function updateEvent(id: string, data: Partial<Omit<GameEvent, "id">>): Promise<void> {
   await updateDoc(doc(db, "gameEvents", id), clean(data));
+}
+
+/** Saves a games event's fitness warm-up sessions (the whole list, in order). */
+export async function saveFitnessSessions(id: string, sessions: FitnessSession[]): Promise<void> {
+  await updateDoc(doc(db, "gameEvents", id), {
+    fitnessSessions: sessions.map((s) => ({ id: s.id, title: s.title.trim(), moveIds: s.moveIds })),
+  });
 }
 
 /**
