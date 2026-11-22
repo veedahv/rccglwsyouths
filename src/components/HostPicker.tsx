@@ -15,6 +15,7 @@ export default function HostPicker({
   hosts,
   youths,
   presentIds,
+  guests = [],
   canEdit,
   onChange,
   emptyText = "No host chosen yet.",
@@ -22,6 +23,7 @@ export default function HostPicker({
   hosts: GamePlayer[];
   youths: Youth[]; // active youths
   presentIds?: string[] | null; // people marked present, listed first. Null or missing: no grouping.
+  guests?: GamePlayer[]; // guests marked present at the linked event, offered as hosts too
   canEdit: boolean;
   onChange: (hosts: GamePlayer[]) => void;
   emptyText?: string;
@@ -40,6 +42,11 @@ export default function HostPicker({
   }, [youths, presentIds, hosts]);
 
   function addYouth(id: string) {
+    const guest = guests.find((g) => g.id === id);
+    if (guest) {
+      onChange([...hosts, guest]);
+      return;
+    }
     const y = youths.find((x) => x.id === id);
     if (!y) return;
     onChange([...hosts, { id: y.id, name: formatPersonName(y.name, y.gender), gender: y.gender }]);
@@ -85,6 +92,17 @@ export default function HostPicker({
             aria-label="Add a host from the youths"
           >
             <option value="">Add a host from the youths…</option>
+            {guests.some((g) => !hostIds.has(g.id)) && (
+              <optgroup label="Guests present">
+                {guests
+                  .filter((g) => !hostIds.has(g.id))
+                  .map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+              </optgroup>
+            )}
             {here.length > 0 && (
               <optgroup label="Present">
                 {here.map((y) => (

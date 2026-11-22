@@ -17,6 +17,7 @@ import {
 import { listYouths } from "@/lib/youths";
 import { getEvent as getChurchEvent } from "@/lib/events";
 import { getAttendanceForGathering } from "@/lib/attendance";
+import { guestsAsPlayers, listGuests } from "@/lib/guests";
 import { subscribeExternalGames } from "@/lib/externalGames";
 import { formatPersonName } from "@/lib/formatName";
 import { useAuth } from "@/lib/useAuth";
@@ -60,6 +61,8 @@ function EventInner() {
   // When this games event is linked to a church event, that event's attendance is the attendance here.
   const [churchEvent, setChurchEvent] = useState<ChurchEvent | null>(null);
   const [linkedPresent, setLinkedPresent] = useState<string[]>([]);
+  // The guests marked on that event's attendance (people who came but aren't youths).
+  const [linkedGuests, setLinkedGuests] = useState<GamePlayer[]>([]);
 
   useEffect(() => {
     const off = [
@@ -85,12 +88,19 @@ function EventInner() {
     if (!churchEventId) {
       setChurchEvent(null);
       setLinkedPresent([]);
+      setLinkedGuests([]);
       return;
     }
-    Promise.all([getChurchEvent(churchEventId), getAttendanceForGathering("events", churchEventId)])
-      .then(([ce, present]) => {
+    Promise.all([
+      getChurchEvent(churchEventId),
+      getAttendanceForGathering("events", churchEventId),
+      // If guests can't be read (the new rules not deployed yet), the youths' attendance still loads.
+      listGuests("events", churchEventId).catch(() => []),
+    ])
+      .then(([ce, present, guests]) => {
         setChurchEvent(ce);
         setLinkedPresent([...present]);
+        setLinkedGuests(guestsAsPlayers(guests));
       })
       .catch(() => setError("Couldn't load the linked event's attendance."));
   }, [churchEventId]);
@@ -243,7 +253,7 @@ function EventInner() {
   // Linked to a church event: who is present comes from that event's attendance (taken on its page).
   // Everything below reads attendance from `shared`, so a linked and an unlinked event behave the same.
   const linked = !!churchEventId && !!churchEvent;
-  const shared: GameEvent = linked ? { ...event, presentIds: linkedPresent, guests: [] } : event;
+  const shared: GameEvent = linked ? { ...event, presentIds: linkedPresent, guests: linkedGuests } : event;
 
   // Once anyone is marked present, games pick only from the people present.
   const attendanceTaken = (shared.presentIds?.length ?? 0) + (shared.guests?.length ?? 0) > 0;
@@ -341,15 +351,28 @@ function EventInner() {
             }
           >
             <p className="mb-3 text-sm text-muted">
-              <span className="num font-semibold text-ink">{linkedPresent.length}</span> marked present on{" "}
-              <span className="font-medium text-ink">{churchEvent?.title}</span>
+              <span className="num font-semibold text-ink">{linkedPresent.length}</span> marked present
+              {linkedGuests.length > 0 && (
+                <>
+                  {" "}
+                  and <span className="num font-semibold text-ink">{linkedGuests.length}</span> {linkedGuests.length === 1 ? "guest" : "guests"}
+                </>
+              )}{" "}
+              on <span className="font-medium text-ink">{churchEvent?.title}</span>
               {!attendanceTaken && ". No one is marked yet, so games can pick from every active youth. (The event's attendance list opens once its date arrives.)"}
             </p>
+            {linkedGuests.length > 0 && (
+              <p className="mb-3 text-sm text-muted">
+                <span className="font-medium text-ink">Guests:</span> {linkedGuests.map((g) => g.name.replace(/ \(guest\)$/, "")).join(", ")}. They can be put into
+                games like anyone else.
+              </p>
+            )}
             <span className="label">Hosts of the games on screen</span>
             <HostPicker
               hosts={event.hosts ?? []}
               youths={youths}
               presentIds={attendanceTaken ? linkedPresent : null}
+              guests={linkedGuests}
               canEdit={canRun}
               onChange={(hosts) =>
                 updateEvent(event.id, { hosts }).catch(() => setError("Couldn't save the hosts. Check your connection and try again."))

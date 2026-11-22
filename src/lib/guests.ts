@@ -4,11 +4,20 @@ import { getYouthAttendance, markPresent, type GatheringType } from "./attendanc
 import { createYouth, deleteYouth } from "./youths";
 import { todayISO } from "./format";
 import type { Guest, Youth } from "@/types";
+import type { GamePlayer } from "@/types/games";
 
 // Guests: people who came to an event or meeting but aren't youths. They are kept on the gathering itself
 // (/events/{id}/guests/{guestId}, /meetings/{id}/guests/{guestId}), so they never end up on the youth list.
 
 const guestsPath = (type: GatheringType, gatheringId: string) => `${type}/${gatheringId}/guests`;
+
+/**
+ * The guests of an event as players for its games. The id comes from the guest's own, so the same guest is
+ * the same player every time the page loads (games they were put into keep pointing at them).
+ */
+export function guestsAsPlayers(guests: Guest[]): GamePlayer[] {
+  return guests.map((g) => ({ id: `guest-${g.id}`, name: `${g.name} (guest)`, guest: true }));
+}
 
 /** Everyone listed as a guest at one event or meeting, in the order they were added. */
 export async function listGuests(type: GatheringType, gatheringId: string): Promise<Guest[]> {
@@ -59,4 +68,3 @@ export async function moveYouthToGuests(youth: Pick<Youth, "id" | "name">, added
   await deleteYouth(youth.id); // also clears their attendance marks
   return attended.length;
 }
-
