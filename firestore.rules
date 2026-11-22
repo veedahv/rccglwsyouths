@@ -155,6 +155,12 @@ service cloud.firestore {
         allow read: if isExco();
         allow write: if hasPermission('canEditMinutes');
       }
+
+      // Guests who came to the meeting but aren't on the youth roster.
+      match /guests/{guestId} {
+        allow read: if isExco();
+        allow write: if hasPermission('canEditMinutes');
+      }
     }
 
     match /events/{eventId} {
@@ -162,6 +168,12 @@ service cloud.firestore {
       allow write: if hasPermission('canEditEvents');
 
       match /attendance/{youthId} {
+        allow read: if isExco();
+        allow write: if hasPermission('canEditEvents');
+      }
+
+      // Guests who came to the event but aren't on the youth roster.
+      match /guests/{guestId} {
         allow read: if isExco();
         allow write: if hasPermission('canEditEvents');
       }

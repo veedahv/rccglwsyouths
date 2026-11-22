@@ -438,3 +438,12 @@ A 12 to 15 minute warm-up for outdoor games days (football, races, the egg race)
 **In a games event:** the games event page has a **Fitness warm-ups** card where you add one or more **fitness sessions** (for example "Warm-up", then "Before the football") and pick the moves each one uses. Moves are ticked part by part or one by one; a new session starts with the whole routine ticked. Sessions can be renamed, edited, reordered and removed, and each has a **Lead** button that opens leader mode with just its moves (`/games/events/[id]/fitness/[sessionId]`). They are saved on the games event as `fitnessSessions` (a title and the ids of the moves), so there is nothing new to deploy.
 
 The routine itself lives in `src/lib/warmups.ts`, so changing a move, its numbers or the tips means editing that file; `app/games/warm-ups/page.tsx` and `app/games/warm-ups/lead/page.tsx` just display it.
+
+
+## Guests on attendance
+
+Not everyone at an event or meeting is a youth. In an attendance checklist, **Add someone not on this list** now asks whether the person is a **Guest** or a **Youth**:
+- **Guest** (the starting choice): a visitor, kept with that one event or meeting (`/events/{id}/guests/{guestId}`, `/meetings/{id}/guests/{guestId}`). They are never added to the youth list, so they don't appear on it, in dues, in contribution drives or in any youth's attendance history. The checklist shows them in their own **Guests** list with a Guest tag and counts them separately ("12 of 40 present · 3 guests"); the percentage still counts youths only.
+- **Youth**: as before, they join the youth list and are marked present.
+
+Each guest has **Make a youth** (adds them to the youth list, marks them present here and removes the guest entry) and **Remove**. For people who were already added as youths but were really guests, the youth list has a **Move to guests** action (for people who can manage roles): it takes them off the youth list and keeps them as a guest at every event and meeting they were marked present at. Like Delete, it is refused for anyone with dues payments or a pledge, or who is an exco. Code: `lib/guests.ts`, `components/AttendanceChecklist.tsx`, `app/youths/page.tsx`. **Deploy the updated `firestore.rules`** (new `guests` rules under events and meetings) before adding guests.

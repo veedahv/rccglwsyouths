@@ -399,6 +399,17 @@ export interface AttendanceRecord {
   markedAt: string;
 }
 
+// Someone who came to an event or meeting but isn't on the youth roster: a visitor, or a friend someone
+// brought. A guest lives with the gathering itself (/events/{id}/guests/{guestId} or
+// /meetings/{id}/guests/{guestId}); they are never added to the youth list, so they don't show up on it, in
+// dues, in contribution drives or in any youth's attendance history. Being listed means they were there.
+export interface Guest {
+  id: string;
+  name: string;
+  addedBy: string; // uid of the exco who added them
+  addedAt: string;
+}
+
 // Anyone who can appear on an attendance checklist — a youth, or an exco
 // (see the note on AttendanceRecord about how excos are keyed). A Youth
 // already fits this shape.

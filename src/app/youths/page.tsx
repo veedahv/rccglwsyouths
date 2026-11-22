@@ -10,6 +10,7 @@ import {
   getYouthDeleteBlocker,
   deleteYouth,
 } from "@/lib/youths";
+import { moveYouthToGuests } from "@/lib/guests";
 import { promoteYouthToExco } from "@/lib/excos";
 import { listRoleConfigs } from "@/lib/roles";
 import { useAuth } from "@/lib/useAuth";
@@ -27,10 +28,10 @@ const INACTIVE_REASON_LABEL: Record<InactiveReason, string> = {
 };
 
 type StatusFilter = "active" | "inactive" | "all";
-type YouthAction = "delete" | "exco" | "inactive" | "reactivate";
+type YouthAction = "delete" | "guest" | "exco" | "inactive" | "reactivate";
 
 function YouthDirectoryInner() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const canManage = hasPermission("canManageRoles");
 
   // The whole roster is loaded once; the filter and search narrow it client-side
@@ -87,7 +88,7 @@ function YouthDirectoryInner() {
   // Deleting is refused for anyone with money records, so find out as soon
   // as the dialog opens rather than after they've confirmed.
   useEffect(() => {
-    if (action?.kind !== "delete") return;
+    if (action?.kind !== "delete" && action?.kind !== "guest") return;
     let cancelled = false;
     getYouthDeleteBlocker(action.youth)
       .then((blocker) => !cancelled && setDeleteBlocker(blocker))
@@ -130,6 +131,11 @@ function YouthDirectoryInner() {
     try {
       if (kind === "delete") {
         await deleteYouth(youth.id);
+      } else if (kind === "guest") {
+        // Someone added as a youth who was really a guest: off the youth list, kept as a guest at the
+        // events and meetings they were marked present at.
+        if (!user) throw new Error("Not signed in");
+        await moveYouthToGuests(youth, user.uid);
       } else if (kind === "exco") {
         // Setting a youth as an exco is just a status change: pick a role
         // and it's done. No email or login here. They're invited later,
@@ -146,7 +152,9 @@ function YouthDirectoryInner() {
       setActionError(
         kind === "delete"
           ? `Couldn't delete ${who}. Try again.`
-          : kind === "exco"
+          : kind === "guest"
+            ? `Couldn't move ${who} to guests. Try again.`
+            : kind === "exco"
             ? `Couldn't make ${who} an exco. Try again.`
             : `Couldn't update ${who}. Try again.`
       );
@@ -321,6 +329,11 @@ function YouthDirectoryInner() {
                           </button>
                         ))}
                       {canManage && (
+                        <button onClick={() => openAction("guest", y)} className="btn-ghost !text-muted" title="They're a guest, not a youth">
+                          Move to guests
+                        </button>
+                      )}
+                      {canManage && (
                         <button onClick={() => openAction("delete", y)} className="btn-ghost-danger">
                           Delete
                         </button>
@@ -337,7 +350,9 @@ function YouthDirectoryInner() {
         <ConfirmDialog
           open
           title={
-            action.kind === "delete"
+            action.kind === "guest"
+              ? "Move this person to guests?"
+              : action.kind === "delete"
               ? "Delete this youth?"
               : action.kind === "exco"
                 ? "Make this youth an exco?"
@@ -351,7 +366,9 @@ function YouthDirectoryInner() {
           }}
           tone={action.kind === "delete" ? "danger" : "primary"}
           confirmLabel={
-            action.kind === "delete"
+            action.kind === "guest"
+              ? "Move to guests"
+              : action.kind === "delete"
               ? "Delete for good"
               : action.kind === "exco"
                 ? "Make exco"
@@ -359,11 +376,11 @@ function YouthDirectoryInner() {
                   ? "Mark inactive"
                   : "Reactivate"
           }
-          busyLabel={action.kind === "delete" ? "Deleting…" : "Saving…"}
+          busyLabel={action.kind === "delete" ? "Deleting…" : action.kind === "guest" ? "Moving…" : "Saving…"}
           busy={actionBusy}
           error={actionError}
           blockedReason={
-            action.kind === "delete" && deleteBlocker
+            (action.kind === "delete" || action.kind === "guest") && deleteBlocker
               ? `${deleteBlocker} You can mark them inactive instead.`
               : null
           }
@@ -373,7 +390,12 @@ function YouthDirectoryInner() {
           onConfirm={runAction}
           onCancel={closeAction}
           description={
-            action.kind === "delete" ? (
+            action.kind === "guest" ? (
+              <>
+                They&apos;ll come off the youth list. At every event and meeting they were marked present at, they&apos;ll be
+                listed as a guest instead, so those attendance lists stay the same.
+              </>
+            ) : action.kind === "delete" ? (
               <>This permanently removes their record. It can&apos;t be undone.</>
             ) : action.kind === "exco" ? (
               <>
